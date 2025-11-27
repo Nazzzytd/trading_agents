@@ -1,0 +1,107 @@
+get_stock_data 引用扫描报告
+==================================================
+
+IMPORTS:
+  scan_stock_references.py:66
+    if 'import' in content and 'get_stock_data' in content:
+
+  tradingagents copy/agents/analysts/market_analyst.py:4
+    from tradingagents.agents.utils.agent_utils import get_stock_data, get_indicators
+
+  tradingagents/agents/analysts/market_analyst.py:4
+    from tradingagents.agents.utils.agent_utils import get_stock_data, get_indicators
+
+FUNCTION_CALLS:
+  scan_stock_references.py:70
+    elif 'get_stock_data(' in content:
+
+  scan_stock_references.py:112
+    print(f"   - {ref['file']}: 将 get_stock_data(...) 改为 get_forex_data(...)")
+
+TOOL_DEFINITIONS:
+  scan_stock_references.py:68
+    elif 'def get_stock_data' in content or '@tool' in content:
+
+  tradingagents copy/agents/utils/core_stock_tools.py:7
+    def get_stock_data(
+
+  tradingagents copy/dataflows/yfin_utils.py:26
+    def get_stock_data(
+
+  tradingagents/dataflows/vendors/yfin_utils.py:26
+    def get_stock_data(
+
+COMMENTS:
+  scan_stock_references.py:32
+    # 查找 get_stock_data 引用
+
+  scan_stock_references.py:72
+    elif '#' in content and content.index('#') < content.index('get_stock_data'):
+
+  tradingagents copy/default_config.py:30
+    # Example: "get_stock_data": "alpha_vantage",  # Override category default
+
+OTHER:
+  test_twelve_config.py:31
+    if "get_stock_data" in VENDOR_METHODS and "twelvedata" in VENDOR_METHODS["get_stock_data"]:
+
+  test_twelve_config.py:52
+    result = route_to_vendor("get_stock_data", symbol, "2024-01-01", "2024-01-10")
+
+  scan_stock_references.py:8
+    扫描整个项目目录，查找所有引用 get_stock_data 的地方
+
+  scan_stock_references.py:33
+    if 'get_stock_data' in content:
+
+  scan_stock_references.py:36
+    if 'get_stock_data' in line:
+
+  scan_stock_references.py:85
+    print(f"\n📊 扫描结果: 共找到 {total_refs} 个 get_stock_data 引用")
+
+  scan_stock_references.py:107
+    print(f"   - {ref['file']}: 将 get_stock_data 改为 get_forex_data")
+
+  scan_stock_references.py:130
+    print("🎉 恭喜！没有找到任何 get_stock_data 引用")
+
+  scan_stock_references.py:145
+    f.write("get_stock_data 引用扫描报告\n")
+
+  tradingagents copy/graph/trading_graph.py:27
+    get_stock_data,
+
+  tradingagents copy/graph/trading_graph.py:129
+    get_stock_data,
+
+  tradingagents copy/agents/utils/agent_utils.py:5
+    get_stock_data
+
+  tradingagents copy/agents/utils/core_stock_tools.py:22
+    return route_to_vendor("get_stock_data", symbol, start_date, end_date)
+
+  tradingagents copy/agents/analysts/market_analyst.py:16
+    get_stock_data,
+
+  tradingagents copy/agents/analysts/market_analyst.py:45
+    - Select indicators that provide diverse and complementary information. Avoid redundancy (e.g., do not select both rsi and stochrsi). Also briefly explain why they are suitable for the given market context. When you tool call, please use the exact name of the indicators provided above as they are defined parameters, otherwise your call will fail. Please make sure to call get_stock_data first to retrieve the CSV that is needed to generate indicators. Then use get_indicators with the specific indicator names. Write a very detailed and nuanced report of the trends you observe. Do not simply state the trends are mixed, provide detailed and finegrained analysis and insights that may help traders make decisions."""
+
+  tradingagents copy/dataflows/interface.py:28
+    "get_stock_data"
+
+  tradingagents copy/dataflows/interface.py:67
+    "get_stock_data": {
+
+  tradingagents/graph/trading_graph.py:27
+    get_stock_data,
+
+  tradingagents/graph/trading_graph.py:129
+    get_stock_data,
+
+  tradingagents/agents/analysts/market_analyst.py:16
+    get_stock_data,
+
+  tradingagents/agents/analysts/market_analyst.py:45
+    - Select indicators that provide diverse and complementary information. Avoid redundancy (e.g., do not select both rsi and stochrsi). Also briefly explain why they are suitable for the given market context. When you tool call, please use the exact name of the indicators provided above as they are defined parameters, otherwise your call will fail. Please make sure to call get_stock_data first to retrieve the CSV that is needed to generate indicators. Then use get_indicators with the specific indicator names. Write a very detailed and nuanced report of the trends you observe. Do not simply state the trends are mixed, provide detailed and finegrained analysis and insights that may help traders make decisions."""
+
