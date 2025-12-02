@@ -1,43 +1,60 @@
+# /Users/fr./Downloads/TradingAgents-main/tradingagents/dataflows/vendors/alpha_vantage_news.py
+
 from .alpha_vantage_common import _make_api_request, format_datetime_for_api
+from typing import Optional
+import logging
 
-def get_news(ticker, start_date, end_date) -> dict[str, str] | str:
-    """Returns live and historical market news & sentiment data from premier news outlets worldwide.
+logger = logging.getLogger(__name__)
 
-    Covers stocks, cryptocurrencies, forex, and topics like fiscal policy, mergers & acquisitions, IPOs.
-
-    Args:
-        ticker: Stock symbol for news articles.
-        start_date: Start date for news search.
-        end_date: End date for news search.
-
-    Returns:
-        Dictionary containing news sentiment data or JSON string.
-    """
-
-    params = {
-        "tickers": ticker,
-        "time_from": format_datetime_for_api(start_date),
-        "time_to": format_datetime_for_api(end_date),
-        "sort": "LATEST",
-        "limit": "50",
-    }
+def get_news(
+    ticker: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    topics: Optional[str] = None,
+    limit: Optional[int] = None
+):
+    """Returns live and historical forex market news & sentiment data.
     
-    return _make_api_request("NEWS_SENTIMENT", params)
-
-def get_insider_transactions(symbol: str) -> dict[str, str] | str:
-    """Returns latest and historical insider transactions by key stakeholders.
-
-    Covers transactions by founders, executives, board members, etc.
-
+    Modified for forex trading - automatically filters by 'forex' topic.
+    
     Args:
-        symbol: Ticker symbol. Example: "IBM".
+        ticker: Currency pair (e.g., "EURUSD", "USDJPY") or empty for general forex news.
+        start_date: Start date for news search (optional).
+        end_date: End date for news search (optional).
+        topics: News topics to filter (defaults to "forex" for forex trading).
+        limit: Maximum number of news items to return.
 
     Returns:
-        Dictionary containing insider transaction data or JSON string.
+        Dictionary containing forex news sentiment data.
     """
-
-    params = {
-        "symbol": symbol,
-    }
-
-    return _make_api_request("INSIDER_TRANSACTIONS", params)
+    
+    params = {}
+    
+    # 处理时间参数
+    if start_date:
+        try:
+            params["time_from"] = format_datetime_for_api(start_date)
+        except Exception as e:
+            logger.warning(f"Failed to format start_date {start_date}: {e}")
+    
+    if end_date:
+        try:
+            params["time_to"] = format_datetime_for_api(end_date)
+        except Exception as e:
+            logger.warning(f"Failed to format end_date {end_date}: {e}")
+    
+    # 设置默认的topics为forex
+    params["topics"] = topics if topics else "forex"
+    
+    # 排序和限制
+    params["sort"] = "LATEST"
+    params["limit"] = str(limit) if limit else "50"
+    
+    # 处理货币对格式
+    if ticker and str(ticker).strip():
+        # 移除斜杠，转换为AlphaVantage格式
+        formatted_ticker = str(ticker).replace("/", "").upper()
+        params["tickers"] = formatted_ticker
+    
+    logger.debug(f"AlphaVantage news params: {params}")
+    return _make_api_request("NEWS_SENTIMENT", params)

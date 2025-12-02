@@ -39,11 +39,13 @@ class AlphaVantageRateLimitError(Exception):
     """Exception raised when Alpha Vantage API rate limit is exceeded."""
     pass
 
+# 在 _make_api_request 函数中添加逻辑处理
+
 def _make_api_request(function_name: str, params: dict) -> dict | str:
     """Helper function to make API requests and handle responses.
     
-    Raises:
-        AlphaVantageRateLimitError: When API rate limit is exceeded
+    Returns:
+        dict for JSON responses, str for CSV responses
     """
     # Create a copy of params to avoid modifying the original
     api_params = params.copy()
@@ -68,19 +70,33 @@ def _make_api_request(function_name: str, params: dict) -> dict | str:
 
     response_text = response.text
     
-    # Check if response is JSON (error responses are typically JSON)
+    # 关键修改：根据函数类型决定返回格式
     try:
+        # 尝试解析为 JSON
         response_json = json.loads(response_text)
-        # Check for rate limit error
+        
+        # 检查是否有错误信息
         if "Information" in response_json:
             info_message = response_json["Information"]
             if "rate limit" in info_message.lower() or "api key" in info_message.lower():
                 raise AlphaVantageRateLimitError(f"Alpha Vantage rate limit exceeded: {info_message}")
+        
+        # 对于 NEWS_SENTIMENT 函数，总是返回 JSON
+        if function_name == "NEWS_SENTIMENT":
+            return response_json
+        
+        # 对于其他函数，如果响应看起来是 JSON 就返回 JSON，否则返回文本
+        # 检查是否是常见的 JSON 响应结构
+        if isinstance(response_json, dict) and any(key in response_json for key in 
+                                                  ['Meta Data', 'Time Series', 'Technical Analysis', 'feed']):
+            return response_json
+        else:
+            # 如果不是常见的 JSON 结构，返回原始文本（可能是 CSV）
+            return response_text
+            
     except json.JSONDecodeError:
-        # Response is not JSON (likely CSV data), which is normal
-        pass
-
-    return response_text
+        # Response is not JSON (likely CSV data), which is normal for some endpoints
+        return response_text
 
 
 

@@ -23,11 +23,11 @@ DEFAULT_CONFIG = {
         "core_forex_apis": "twelvedata",       # Options: twelvedata, alpha_vantage
         "technical_indicators": "yfinance",  # Options: yfinance, alpha_vantage, local
         "fundamental_data": "alpha_vantage", # Options: openai, alpha_vantage, local
-        "news_data": "alpha_vantage",        # Options: openai, alpha_vantage, google, local
+        "news_data": "alpha_vantage",         # Options: openai, alpha_vantage, google, local
     },
     # Tool-level configuration (takes precedence over category-level)
     "tool_vendors": {
         "get_forex_data": "twelvedata",  # Override category default
-        # Example: "get_news": "openai",               # Override category default
+        "get_news": "alpha_vantage",               # Override category default
     },
 }

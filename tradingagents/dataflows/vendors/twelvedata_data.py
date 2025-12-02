@@ -12,9 +12,16 @@ class TwelveDataForex:
     """TwelveData 外汇数据获取 - 修复参数处理"""
     
     def __init__(self):
-        self.api_key = os.getenv("TWELVEDATA_API_KEY")
-        if not self.api_key:
-            raise ValueError("TWELVEDATA_API_KEY 环境变量未设置")
+        try:
+            api_key = os.getenv("TWELVEDATA_API_KEY")
+            if not api_key:
+                print("WARNING: TWELVEDATA_API_KEY 环境变量未设置，twelvedata功能将不可用")
+                self.api_key = None
+            else:
+                self.api_key = api_key
+        except Exception as e:
+            print(f"WARNING: 初始化twelvedata失败: {e}")
+            self.api_key = None
             
         self.base_url = "https://api.twelvedata.com"
         self.last_request_time = 0

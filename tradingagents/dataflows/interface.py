@@ -3,15 +3,13 @@ from typing import Annotated
 # Import from vendor-specific modules
 from .local import get_YFin_data, get_finnhub_news, get_finnhub_company_insider_sentiment, get_finnhub_company_insider_transactions, get_simfin_balance_sheet, get_simfin_cashflow, get_simfin_income_statements, get_reddit_global_news, get_reddit_company_news
 from .vendors.y_finance import get_YFin_data_online, get_stock_stats_indicators_window, get_balance_sheet as get_yfinance_balance_sheet, get_cashflow as get_yfinance_cashflow, get_income_statement as get_yfinance_income_statement, get_insider_transactions as get_yfinance_insider_transactions
-from .vendors.google import get_google_news
-from .vendors.openai import get_stock_news_openai, get_global_news_openai, get_fundamentals_openai
+from .vendors.openai import get_forex_news_openai, get_fundamentals_openai
 from .vendors.alpha_vantage import (
     get_forex as get_alpha_vantage_forex,
     get_fundamentals as get_alpha_vantage_fundamentals,
     get_balance_sheet as get_alpha_vantage_balance_sheet,
     get_cashflow as get_alpha_vantage_cashflow,
     get_income_statement as get_alpha_vantage_income_statement,
-    get_insider_transactions as get_alpha_vantage_insider_transactions,
     get_news as get_alpha_vantage_news
 )
 from .vendors.alpha_vantage_common import AlphaVantageRateLimitError
@@ -49,10 +47,7 @@ TOOLS_CATEGORIES = {
     "news_data": {
         "description": "News (public/insiders, original/processed)",
         "tools": [
-            "get_news",
-            "get_global_news",
-            "get_insider_sentiment",
-            "get_insider_transactions",
+            "get_news"
         ]
     }
 }
@@ -100,23 +95,11 @@ VENDOR_METHODS = {
     # news_data
     "get_news": {
         "alpha_vantage": get_alpha_vantage_news,
-        "openai": get_stock_news_openai,
-        "google": get_google_news,
-        "local": [get_finnhub_news, get_reddit_company_news, get_google_news],
-    },
-    "get_global_news": {
-        "openai": get_global_news_openai,
-        "local": get_reddit_global_news
-    },
-    "get_insider_sentiment": {
-        "local": get_finnhub_company_insider_sentiment
-    },
-    "get_insider_transactions": {
-        "alpha_vantage": get_alpha_vantage_insider_transactions,
-        "yfinance": get_yfinance_insider_transactions,
-        "local": get_finnhub_company_insider_transactions,
+        "openai": get_forex_news_openai,
     },
 }
+    
+    
 
 def get_category_for_method(method: str) -> str:
     """Get the category that contains the specified method."""

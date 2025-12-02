@@ -1,59 +1,99 @@
-#!/usr/bin/env python3
-"""
-验证 get_stock_data 是否已完全替换为 get_forex_data
-"""
+# /Users/fr./Downloads/TradingAgents-main/test_fixed_import.py
 
-import os
 import sys
+import os
+from dotenv import load_dotenv
+load_dotenv()
+# 添加路径
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-project_root = '/Users/fr./Downloads/TradingAgents-main'
-
-def verify_fixes():
-    """验证修复结果"""
-    print("🔍 验证修复结果")
-    print("=" * 50)
+def test_import_fix():
+    print("测试导入修复...")
+    print("=" * 60)
     
-    # 检查关键文件
-    key_files = [
-        'tradingagents/agents/analysts/market_analyst.py',
-        'tradingagents/agents/utils/agent_utils.py', 
-        'tradingagents/dataflows/interface.py',
-        'tradingagents/graph/trading_graph.py'
-    ]
-    
-    all_clean = True
-    
-    for rel_path in key_files:
-        full_path = os.path.join(project_root, rel_path)
-        if os.path.exists(full_path):
-            with open(full_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-                stock_count = content.count('get_stock_data')
-                if stock_count > 0:
-                    print(f"❌ {rel_path}: 仍有 {stock_count} 个 get_stock_data 引用")
-                    all_clean = False
-                else:
-                    print(f"✅ {rel_path}: 已完全修复")
-    
-    print("\n" + "=" * 50)
-    if all_clean:
-        print("🎉 所有关键文件都已修复完成！")
-    else:
-        print("⚠️  仍有文件需要手动修复")
-    
-    # 测试外汇数据功能
-    print("\n🧪 测试外汇数据功能...")
     try:
-        sys.path.insert(0, project_root)
-        from tradingagents.agents.utils.core_forex_tools import get_forex_data
-        print("✅ get_forex_data 工具导入成功")
+        # 1. 测试从 __init__.py 导入
+        print("1. 测试从 agents.__init__ 导入...")
+        from tradingagents.agents import create_news_analyst
+        print("   ✓ 成功导入 create_news_analyst")
         
-        # 测试工具基本信息
-        print(f"   工具名称: {get_forex_data.name}")
-        print(f"   工具描述: {get_forex_data.description[:80]}...")
+        # 2. 测试直接导入
+        print("\n2. 测试直接导入 news_analyst...")
+        from tradingagents.agents.analysts.news_analyst import create_news_analyst as direct_import
+        print("   ✓ 成功直接导入")
+        
+        # 3. 测试工具导入
+        print("\n3. 测试工具导入...")
+        from tradingagents.agents.utils.news_data_tools import get_news
+        print("   ✓ 成功导入 get_news 工具")
+        
+        # 4. 测试配置
+        print("\n4. 测试配置导入...")
+        from tradingagents.dataflows.config import get_config
+        config = get_config()
+        print(f"   ✓ 配置加载成功")
+        print(f"   新闻供应商: {config.get('news_data', {}).get('vendor', '未设置')}")
+        
+        print("\n" + "=" * 60)
+        print("✅ 所有导入测试通过！")
+        
+        return True
+        
+    except ImportError as e:
+        print(f"✗ 导入错误: {e}")
+        print("\n可能的解决方案:")
+        print("1. 检查 __init__.py 文件是否存在且内容正确")
+        print("2. 检查 news_analyst.py 文件是否存在且包含 create_news_analyst 函数")
+        print("3. 检查文件路径和Python路径")
+        
+        # 显示详细错误
+        import traceback
+        traceback.print_exc()
+        
+        return False
         
     except Exception as e:
-        print(f"❌ 外汇数据工具测试失败: {e}")
+        print(f"✗ 其他错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+def test_tool_functionality():
+    print("\n\n测试工具功能...")
+    print("=" * 60)
+    
+    try:
+        from tradingagents.agents.utils.news_data_tools import get_news
+        
+        print("调用 get_news 工具...")
+        result = get_news.invoke({
+            "ticker": "",
+            "start_date": "2024-12-01",
+            "end_date": "2024-12-02",
+            "limit": 3,
+            "vendor_aware": True
+        })
+        
+        print(f"✓ 工具调用成功")
+        print(f"返回类型: {type(result)}")
+        
+        if isinstance(result, dict):
+            print(f"供应商: AlphaVantage")
+            print(f"新闻数量: {result.get('items', 'N/A')}")
+            if 'feed' in result:
+                feed = result['feed']
+                if isinstance(feed, list):
+                    print(f"实际条数: {len(feed)}")
+                    if len(feed) > 0:
+                        print(f"第一条新闻标题: {feed[0].get('title', 'N/A')[:50]}...")
+        else:
+            print(f"响应预览: {str(result)[:200]}...")
+            
+    except Exception as e:
+        print(f"✗ 工具测试失败: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
-    verify_fixes()
+    if test_import_fix():
+        test_tool_functionality()
