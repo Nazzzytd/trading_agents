@@ -32,9 +32,10 @@ __all__ = [
     "create_market_analyst",
     "create_neutral_debator",
     "create_news_analyst",
+    "create_quantitative_analyst",
+    "create_llm_enhanced_quantitative_analyst",
     "create_risky_debator",
     "create_risk_manager",
     "create_safe_debator",
-    "create_social_media_analyst",
     "create_trader",
 ]

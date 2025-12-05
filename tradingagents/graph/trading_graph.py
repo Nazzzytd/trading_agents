@@ -36,6 +36,18 @@ from tradingagents.agents.utils.agent_utils import (
     get_global_news
 )
 
+# 导入新的技术分析和量化分析工具
+from tradingagents.agents.utils.technical_indicators_tools import (
+    get_technical_indicators_data,
+    get_fibonacci_levels,
+)
+
+from tradingagents.agents.utils.quant_data_tools import (
+    get_factor_analysis,
+    validate_technical_signal,
+    calculate_risk_metrics
+)
+
 from .conditional_logic import ConditionalLogic
 from .setup import GraphSetup
 from .propagation import Propagator
@@ -48,7 +60,7 @@ class TradingAgentsGraph:
 
     def __init__(
         self,
-        selected_analysts=["market", "social", "news", "fundamentals"],
+        selected_analysts=["market", "social", "news", "technical", "quantitative"],
         debug=False,
         config: Dict[str, Any] = None,
     ):
@@ -122,10 +134,11 @@ class TradingAgentsGraph:
 
     def _create_tool_nodes(self) -> Dict[str, ToolNode]:
         """Create tool nodes for different data sources using abstract methods."""
-        return {
+        # 基础工具集合
+        base_tools = {
             "market": ToolNode(
                 [
-                    # Core stock data tools
+                    # Core forex data tools
                     get_forex_data,
                     # Technical indicators
                     get_indicators,
@@ -146,16 +159,26 @@ class TradingAgentsGraph:
                     get_insider_transactions,
                 ]
             ),
-            "fundamentals": ToolNode(
-                [
-                    # Fundamental analysis tools
-                    get_fundamentals,
-                    get_balance_sheet,
-                    get_cashflow,
-                    get_income_statement,
-                ]
-            ),
         }
+        
+        # 技术分析工具节点
+        technical_tools = [
+            get_technical_indicators_data,
+            get_fibonacci_levels,
+        ]
+        
+        # 量化分析工具节点
+        quant_tools = [
+            get_factor_analysis,
+            validate_technical_signal,
+            calculate_risk_metrics,
+        ]
+        
+        # 更新工具节点字典
+        base_tools["technical"] = ToolNode(technical_tools)
+        base_tools["quantitative"] = ToolNode(quant_tools)
+        
+        return base_tools
 
     def propagate(self, company_name, trade_date):
         """Run the trading agents graph for a company on a specific date."""
@@ -166,6 +189,12 @@ class TradingAgentsGraph:
         init_agent_state = self.propagator.create_initial_state(
             company_name, trade_date
         )
+        
+        # 确保state包含所有新的分析类型
+        for analyst_type in ["technical", "quantitative"]:
+            if f"{analyst_type}_report" not in init_agent_state:
+                init_agent_state[f"{analyst_type}_report"] = ""
+        
         args = self.propagator.get_graph_args()
 
         if self.debug:
@@ -194,35 +223,45 @@ class TradingAgentsGraph:
 
     def _log_state(self, trade_date, final_state):
         """Log the final state to a JSON file."""
-        self.log_states_dict[str(trade_date)] = {
+        # 准备所有可能报告的字段
+        report_fields = [
+            "market_report", "sentiment_report", "news_report", 
+            "technical_report", "quantitative_report"
+        ]
+        
+        # 构建日志字典
+        log_dict = {
             "company_of_interest": final_state["company_of_interest"],
             "trade_date": final_state["trade_date"],
-            "market_report": final_state["market_report"],
-            "sentiment_report": final_state["sentiment_report"],
-            "news_report": final_state["news_report"],
-            "fundamentals_report": final_state["fundamentals_report"],
-            "investment_debate_state": {
-                "bull_history": final_state["investment_debate_state"]["bull_history"],
-                "bear_history": final_state["investment_debate_state"]["bear_history"],
-                "history": final_state["investment_debate_state"]["history"],
-                "current_response": final_state["investment_debate_state"][
-                    "current_response"
-                ],
-                "judge_decision": final_state["investment_debate_state"][
-                    "judge_decision"
-                ],
-            },
-            "trader_investment_decision": final_state["trader_investment_plan"],
-            "risk_debate_state": {
-                "risky_history": final_state["risk_debate_state"]["risky_history"],
-                "safe_history": final_state["risk_debate_state"]["safe_history"],
-                "neutral_history": final_state["risk_debate_state"]["neutral_history"],
-                "history": final_state["risk_debate_state"]["history"],
-                "judge_decision": final_state["risk_debate_state"]["judge_decision"],
-            },
-            "investment_plan": final_state["investment_plan"],
-            "final_trade_decision": final_state["final_trade_decision"],
         }
+        
+        # 添加所有存在的报告
+        for field in report_fields:
+            if field in final_state:
+                log_dict[field] = final_state[field]
+        
+        # 添加辩论状态
+        log_dict["investment_debate_state"] = {
+            "bull_history": final_state.get("investment_debate_state", {}).get("bull_history", []),
+            "bear_history": final_state.get("investment_debate_state", {}).get("bear_history", []),
+            "history": final_state.get("investment_debate_state", {}).get("history", []),
+            "current_response": final_state.get("investment_debate_state", {}).get("current_response", ""),
+            "judge_decision": final_state.get("investment_debate_state", {}).get("judge_decision", ""),
+        }
+        
+        log_dict["trader_investment_decision"] = final_state.get("trader_investment_plan", "")
+        log_dict["risk_debate_state"] = {
+            "risky_history": final_state.get("risk_debate_state", {}).get("risky_history", []),
+            "safe_history": final_state.get("risk_debate_state", {}).get("safe_history", []),
+            "neutral_history": final_state.get("risk_debate_state", {}).get("neutral_history", []),
+            "history": final_state.get("risk_debate_state", {}).get("history", []),
+            "judge_decision": final_state.get("risk_debate_state", {}).get("judge_decision", ""),
+        }
+        log_dict["investment_plan"] = final_state.get("investment_plan", "")
+        log_dict["final_trade_decision"] = final_state.get("final_trade_decision", "")
+
+        # 保存到log字典
+        self.log_states_dict[str(trade_date)] = log_dict
 
         # Save to file
         directory = Path(f"eval_results/{self.ticker}/TradingAgentsStrategy_logs/")
@@ -236,22 +275,128 @@ class TradingAgentsGraph:
 
     def reflect_and_remember(self, returns_losses):
         """Reflect on decisions and update memory based on returns."""
+        # 获取当前状态中所有的分析报告
+        reports = {}
+        for report_type in ["technical", "quantitative"]:
+            if self.curr_state and f"{report_type}_report" in self.curr_state:
+                reports[report_type] = self.curr_state[f"{report_type}_report"]
+        
+        # 更新各个记忆组件，传递分析报告
         self.reflector.reflect_bull_researcher(
-            self.curr_state, returns_losses, self.bull_memory
+            self.curr_state, returns_losses, self.bull_memory, reports
         )
         self.reflector.reflect_bear_researcher(
-            self.curr_state, returns_losses, self.bear_memory
+            self.curr_state, returns_losses, self.bear_memory, reports
         )
         self.reflector.reflect_trader(
-            self.curr_state, returns_losses, self.trader_memory
+            self.curr_state, returns_losses, self.trader_memory, reports
         )
         self.reflector.reflect_invest_judge(
-            self.curr_state, returns_losses, self.invest_judge_memory
+            self.curr_state, returns_losses, self.invest_judge_memory, reports
         )
         self.reflector.reflect_risk_manager(
-            self.curr_state, returns_losses, self.risk_manager_memory
+            self.curr_state, returns_losses, self.risk_manager_memory, reports
         )
 
     def process_signal(self, full_signal):
         """Process a signal to extract the core decision."""
         return self.signal_processor.process_signal(full_signal)
+    
+    def get_recommended_analysts(self, strategy_type: str = "forex") -> List[str]:
+        """Get recommended analyst configurations based on strategy type.
+        
+        Args:
+            strategy_type: Type of trading strategy. Options: "forex", "equity", "crypto"
+        
+        Returns:
+            List of recommended analyst types
+        """
+        recommendations = {
+            "forex": ["news", "technical", "quantitative"],  # 外汇交易推荐配置
+            "equity": ["news", "fundamentals", "technical", "quantitative"],  # 股票交易
+            "crypto": ["news", "social", "technical", "quantitative"],  # 加密货币
+            "quick": ["technical", "quantitative"],  # 快速分析
+            "full": ["market", "social", "news", "technical", "quantitative"],  # 完整分析
+        }
+        
+        return recommendations.get(strategy_type, ["technical", "quantitative"])
+    
+    def update_config(self, new_config: Dict[str, Any]):
+        """Update configuration and reinitialize components.
+        
+        Args:
+            new_config: New configuration dictionary
+        """
+        self.config.update(new_config)
+        set_config(self.config)
+        
+        # Reinitialize LLMs with new config
+        if self.config["llm_provider"].lower() == "openai" or self.config["llm_provider"] == "ollama" or self.config["llm_provider"] == "openrouter":
+            self.deep_thinking_llm = ChatOpenAI(model=self.config["deep_think_llm"], base_url=self.config["backend_url"])
+            self.quick_thinking_llm = ChatOpenAI(model=self.config["quick_think_llm"], base_url=self.config["backend_url"])
+        elif self.config["llm_provider"].lower() == "anthropic":
+            self.deep_thinking_llm = ChatAnthropic(model=self.config["deep_think_llm"], base_url=self.config["backend_url"])
+            self.quick_thinking_llm = ChatAnthropic(model=self.config["quick_think_llm"], base_url=self.config["backend_url"])
+        elif self.config["llm_provider"].lower() == "google":
+            self.deep_thinking_llm = ChatGoogleGenerativeAI(model=self.config["deep_think_llm"])
+            self.quick_thinking_llm = ChatGoogleGenerativeAI(model=self.config["quick_think_llm"])
+        
+        # Reinitialize memories
+        self.bull_memory = FinancialSituationMemory("bull_memory", self.config)
+        self.bear_memory = FinancialSituationMemory("bear_memory", self.config)
+        self.trader_memory = FinancialSituationMemory("trader_memory", self.config)
+        self.invest_judge_memory = FinancialSituationMemory("invest_judge_memory", self.config)
+        self.risk_manager_memory = FinancialSituationMemory("risk_manager_memory", self.config)
+        
+        # Recreate tool nodes
+        self.tool_nodes = self._create_tool_nodes()
+        
+        # Reinitialize GraphSetup
+        self.graph_setup = GraphSetup(
+            self.quick_thinking_llm,
+            self.deep_thinking_llm,
+            self.tool_nodes,
+            self.bull_memory,
+            self.bear_memory,
+            self.trader_memory,
+            self.invest_judge_memory,
+            self.risk_manager_memory,
+            self.conditional_logic,
+        )
+
+    def get_analysis_summary(self, state: Dict[str, Any] = None) -> Dict[str, str]:
+        """Get a summary of all analysis reports.
+        
+        Args:
+            state: Optional state dictionary. If None, uses current state.
+        
+        Returns:
+            Dictionary with analysis summaries
+        """
+        if state is None:
+            state = self.curr_state
+        
+        if state is None:
+            return {"error": "No analysis state available"}
+        
+        summary = {}
+        report_fields = [
+            ("market_report", "市场分析"),
+            ("sentiment_report", "情绪分析"), 
+            ("news_report", "新闻分析"),
+            ("technical_report", "技术分析"),
+            ("quantitative_report", "量化分析")
+        ]
+        
+        for field, name in report_fields:
+            if field in state and state[field]:
+                # 提取前200个字符作为摘要
+                content = state[field]
+                if len(content) > 200:
+                    summary[name] = content[:200] + "..."
+                else:
+                    summary[name] = content
+            else:
+                summary[name] = "无数据"
+        
+        return summary

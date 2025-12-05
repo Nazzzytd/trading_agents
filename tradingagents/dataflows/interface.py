@@ -35,13 +35,12 @@ TOOLS_CATEGORIES = {
             "get_indicators"
         ]
     },
-    "fundamental_data": {
-        "description": "Company fundamentals",
+    "quantitative_analysis": {  # 新增类别
+        "description": "Quantitative analysis and risk metrics",
         "tools": [
-            "get_fundamentals",
-            "gnce_sheet",
-            "get_cashflet_balaow",
-            "get_income_statement"
+            "get_quantitative_analysis",
+            "validate_technical_signal",
+            "calculate_risk_metrics"
         ]
     },
     "news_data": {
@@ -70,7 +69,18 @@ VENDOR_METHODS = {
     },
     # technical_indicators
     "get_indicators": {
-        
+    },
+    # quantitative_analysis
+    "get_quantitative_analysis": {
+        "local": get_quantitative_analysis_local,
+    },
+    "validate_technical_signal": {
+        "local": lambda ticker, curr_date, signal_type, **kwargs: 
+            f"技术信号验证功能 - {ticker} - {signal_type}\n（需要具体实现）"
+    },
+    "calculate_risk_metrics": {
+        "local": lambda ticker, curr_date, lookback_days=252: 
+            get_quantitative_analysis_local(ticker, curr_date, lookback_days)
     },
     # fundamental_data
     "get_fundamentals": {

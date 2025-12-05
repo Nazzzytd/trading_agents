@@ -38,7 +38,8 @@ class GraphSetup:
         self.conditional_logic = conditional_logic
 
     def setup_graph(
-        self, selected_analysts=["market", "social", "news", "fundamentals"]
+        self, 
+        selected_analysts=["market", "social", "news", "technical", "quantitative"]
     ):
         """Set up and compile the agent workflow graph.
 
@@ -47,7 +48,9 @@ class GraphSetup:
                 - "market": Market analyst
                 - "social": Social media analyst
                 - "news": News analyst
-                - "fundamentals": Fundamentals analyst
+                - "technical": Technical analyst
+                - "quantitative": Quantitative analyst
+                - fundamentals已被移除
         """
         if len(selected_analysts) == 0:
             raise ValueError("Trading Agents Graph Setup Error: no analysts selected!")
@@ -57,33 +60,64 @@ class GraphSetup:
         delete_nodes = {}
         tool_nodes = {}
 
+        # 基础分析师
         if "market" in selected_analysts:
             analyst_nodes["market"] = create_market_analyst(
                 self.quick_thinking_llm
             )
             delete_nodes["market"] = create_msg_delete()
-            tool_nodes["market"] = self.tool_nodes["market"]
+            tool_nodes["market"] = self.tool_nodes.get("market", ToolNode([]))
 
         if "social" in selected_analysts:
             analyst_nodes["social"] = create_social_media_analyst(
                 self.quick_thinking_llm
             )
             delete_nodes["social"] = create_msg_delete()
-            tool_nodes["social"] = self.tool_nodes["social"]
+            tool_nodes["social"] = self.tool_nodes.get("social", ToolNode([]))
 
         if "news" in selected_analysts:
             analyst_nodes["news"] = create_news_analyst(
                 self.quick_thinking_llm
             )
             delete_nodes["news"] = create_msg_delete()
-            tool_nodes["news"] = self.tool_nodes["news"]
+            tool_nodes["news"] = self.tool_nodes.get("news", ToolNode([]))
 
-        if "fundamentals" in selected_analysts:
-            analyst_nodes["fundamentals"] = create_fundamentals_analyst(
-                self.quick_thinking_llm
-            )
-            delete_nodes["fundamentals"] = create_msg_delete()
-            tool_nodes["fundamentals"] = self.tool_nodes["fundamentals"]
+        # 新增技术分析师
+        if "technical" in selected_analysts:
+            try:
+                from tradingagents.agents.analysts.technical_analyst import create_technical_analyst
+                analyst_nodes["technical"] = create_technical_analyst(
+                    self.quick_thinking_llm
+                )
+                delete_nodes["technical"] = create_msg_delete()
+                # 创建技术分析工具节点
+                from tradingagents.agents.utils.technical_indicators_tools import (
+                    get_technical_indicators_data,
+                    get_fibonacci_levels,
+                )
+                technical_tools = [get_technical_indicators_data, get_fibonacci_levels]
+                tool_nodes["technical"] = ToolNode(technical_tools)
+            except ImportError as e:
+                print(f"警告: 无法导入技术分析师: {e}")
+
+        # 新增量化分析师
+        if "quantitative" in selected_analysts:
+            try:
+                from tradingagents.agents.analysts.quantitative_analyst import create_quantitative_analyst
+                analyst_nodes["quantitative"] = create_quantitative_analyst(
+                    self.quick_thinking_llm
+                )
+                delete_nodes["quantitative"] = create_msg_delete()
+                # 创建量化分析工具节点
+                from tradingagents.agents.utils.quant_data_tools import (
+                    get_factor_analysis,
+                    validate_technical_signal,
+                    calculate_risk_metrics
+                )
+                quant_tools = [get_factor_analysis, validate_technical_signal, calculate_risk_metrics]
+                tool_nodes["quantitative"] = ToolNode(quant_tools)
+            except ImportError as e:
+                print(f"警告: 无法导入量化分析师: {e}")
 
         # Create researcher and manager nodes
         bull_researcher_node = create_bull_researcher(
@@ -114,7 +148,7 @@ class GraphSetup:
             workflow.add_node(
                 f"Msg Clear {analyst_type.capitalize()}", delete_nodes[analyst_type]
             )
-            workflow.add_node(f"tools_{analyst_type}", tool_nodes[analyst_type])
+            workflow.add_node(f"tools_{analyst_type}", tool_nodes.get(analyst_type, ToolNode([])))
 
         # Add other nodes
         workflow.add_node("Bull Researcher", bull_researcher_node)
@@ -137,19 +171,37 @@ class GraphSetup:
             current_tools = f"tools_{analyst_type}"
             current_clear = f"Msg Clear {analyst_type.capitalize()}"
 
-            # Add conditional edges for current analyst
-            workflow.add_conditional_edges(
-                current_analyst,
-                getattr(self.conditional_logic, f"should_continue_{analyst_type}"),
-                [current_tools, current_clear],
-            )
+            # 为不同的分析师类型使用相应的条件逻辑
+            method_name = f"should_continue_{analyst_type}"
+            if hasattr(self.conditional_logic, method_name):
+                workflow.add_conditional_edges(
+                    current_analyst,
+                    getattr(self.conditional_logic, method_name),
+                    {
+                        current_tools: current_tools,
+                        current_clear: current_clear
+                    },
+                )
+            else:
+                # 如果没有特定方法，使用通用逻辑
+                workflow.add_conditional_edges(
+                    current_analyst,
+                    self._default_should_continue,
+                    {
+                        current_tools: current_tools,
+                        current_clear: current_clear
+                    },
+                )
+            
             workflow.add_edge(current_tools, current_analyst)
+
 
             # Connect to next analyst or to Bull Researcher if this is the last analyst
             if i < len(selected_analysts) - 1:
                 next_analyst = f"{selected_analysts[i+1].capitalize()} Analyst"
                 workflow.add_edge(current_clear, next_analyst)
             else:
+                # 最后一个分析师完成后进入研究员阶段
                 workflow.add_edge(current_clear, "Bull Researcher")
 
         # Add remaining edges

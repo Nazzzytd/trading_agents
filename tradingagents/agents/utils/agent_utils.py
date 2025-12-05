@@ -17,6 +17,12 @@ from tradingagents.agents.utils.news_data_tools import (
     get_news
 )
 
+from tradingagents.agents.utils.quant_data_tools import (
+    get_factor_analysis,
+    validate_technical_signal,
+    calculate_risk_metrics
+)
+
 def create_msg_delete():
     def delete_messages(state):
         """Clear messages and add placeholder for Anthropic compatibility"""
