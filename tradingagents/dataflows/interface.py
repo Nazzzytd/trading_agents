@@ -1,27 +1,52 @@
 from typing import Annotated
+import logging
 
-# Import from vendor-specific modules
-from .local import get_YFin_data, get_finnhub_news, get_finnhub_company_insider_sentiment, get_finnhub_company_insider_transactions, get_simfin_balance_sheet, get_simfin_cashflow, get_simfin_income_statements, get_reddit_global_news, get_reddit_company_news
-from .vendors.y_finance import get_YFin_data_online, get_stock_stats_indicators_window, get_balance_sheet as get_yfinance_balance_sheet, get_cashflow as get_yfinance_cashflow, get_income_statement as get_yfinance_income_statement, get_insider_transactions as get_yfinance_insider_transactions
-from .vendors.openai import get_forex_news_openai, get_fundamentals_openai
-from .vendors.alpha_vantage import (
-    get_forex as get_alpha_vantage_forex,
-    get_fundamentals as get_alpha_vantage_fundamentals,
-    get_balance_sheet as get_alpha_vantage_balance_sheet,
-    get_cashflow as get_alpha_vantage_cashflow,
-    get_income_statement as get_alpha_vantage_income_statement,
-    get_news as get_alpha_vantage_news
-)
-from .vendors.alpha_vantage_common import AlphaVantageRateLimitError
-# from .vendors.reddit_utils import get_reddit_global_news, get_reddit_company_news
+# 导入vendor模块
 from .vendors.twelvedata_data import TwelveDataForex
+from .vendors.alpha_vantage import get_forex as get_alpha_vantage_forex
+from .vendors.alpha_vantage_common import AlphaVantageRateLimitError
 
-# Configuration and routing logic
+# 导入宏观经济数据vendor
+from .vendors.fred_data import get_fred_data_formatted
+from .vendors.ecb_data import get_ecb_data_formatted
+
+# 导入openai新闻vendor
+from .vendors.openai import get_forex_news_openai
+
+# 导入本地宏观经济工具
+from .local.macro_tools import (
+    get_macro_dashboard_local,
+    get_central_bank_calendar_local,
+    get_quantitative_analysis_local
+)
+
+# 导入量化分析工具 - 只导入需要的工具
+from tradingagents.agents.utils.quant_data_tools import (
+    get_risk_metrics_data,
+    get_volatility_data,
+    simple_forex_data
+)
+
+# 导入原有的本地工具
+from .local import (
+    get_YFin_data_window,
+    get_YFin_data,
+    get_finnhub_news,
+    get_finnhub_company_insider_sentiment,
+    get_finnhub_company_insider_transactions,
+    get_reddit_global_news,
+    get_reddit_company_news
+)
+
+# 配置和路由逻辑
 from .config import get_config
 
+logger = logging.getLogger(__name__)
+
+# 初始化vendor实例
 twelvedata_forex = TwelveDataForex()
 
-# Tools organized by category
+# 工具类别定义 - 简化量化分析部分
 TOOLS_CATEGORIES = {
     "core_forex_apis": {
         "description": "OHLCV forex price data",
@@ -35,205 +60,187 @@ TOOLS_CATEGORIES = {
             "get_indicators"
         ]
     },
-    "quantitative_analysis": {  # 新增类别
+    "quantitative_analysis": {
         "description": "Quantitative analysis and risk metrics",
         "tools": [
-            "get_quantitative_analysis",
-            "validate_technical_signal",
-            "calculate_risk_metrics"
+            "get_risk_metrics_data",       # 核心：风险指标数据
+            "get_volatility_data",         # 核心：波动率数据
+            "simple_forex_data",           # 简化数据获取（多合一）
+            "calculate_risk_metrics"       # 向后兼容的别名
         ]
     },
     "news_data": {
-        "description": "News (public/insiders, original/processed)",
+        "description": "Forex news and sentiment data",
         "tools": [
             "get_news"
+        ]
+    },
+    "macroeconomic_data": {
+        "description": "Macroeconomic indicators and central bank data",
+        "tools": [
+            "get_fred_data",        # FRED数据
+            "get_ecb_data",         # ECB数据
+            "get_macro_dashboard",  # 宏观仪表板
+            "get_central_bank_calendar"  # 央行日历
         ]
     }
 }
 
 VENDOR_LIST = [
     "local",
-    "yfinance",
-    "openai",
-    "google",
     "twelvedata",
-    "alpha_vantage"
+    "alpha_vantage",
+    "openai",
+    "fred",
+    "ecb",
+    "quant_tools"  # 量化工具vendor
 ]
 
-# Mapping of methods to their vendor-specific implementations
+# Vendor方法映射 - 简化版本
 VENDOR_METHODS = {
     # core_forex_apis
     "get_forex_data": {
         "twelvedata": twelvedata_forex.get_forex_ohlc,
         "alpha_vantage": get_alpha_vantage_forex,
     },
+    
     # technical_indicators
     "get_indicators": {
+        "local": lambda *args, **kwargs: "技术指标计算 - 请使用 technical_indicators_tools.py 模块"
     },
-    # quantitative_analysis
-    "get_quantitative_analysis": {
-        "local": get_quantitative_analysis_local,
+    
+    # quantitative_analysis - 只保留核心工具
+    "get_risk_metrics_data": {
+        "quant_tools": get_risk_metrics_data,
     },
-    "validate_technical_signal": {
-        "local": lambda ticker, curr_date, signal_type, **kwargs: 
-            f"技术信号验证功能 - {ticker} - {signal_type}\n（需要具体实现）"
+    "get_volatility_data": {
+        "quant_tools": get_volatility_data,
+    },
+    "simple_forex_data": {
+        "quant_tools": simple_forex_data,
     },
     "calculate_risk_metrics": {
-        "local": lambda ticker, curr_date, lookback_days=252: 
-            get_quantitative_analysis_local(ticker, curr_date, lookback_days)
+        "quant_tools": lambda ticker, curr_date, lookback_days=252, **kwargs: 
+            get_risk_metrics_data(ticker, lookback_days, "1day"),
+        "local": lambda ticker, curr_date, lookback_days=252, **kwargs: 
+            get_quantitative_analysis_local(ticker, curr_date, lookback_days, **kwargs)
     },
-    # fundamental_data
-    "get_fundamentals": {
-        "alpha_vantage": get_alpha_vantage_fundamentals,
-        "openai": get_fundamentals_openai,
-    },
-    "get_balance_sheet": {
-        "alpha_vantage": get_alpha_vantage_balance_sheet,
-        "yfinance": get_yfinance_balance_sheet,
-        "local": get_simfin_balance_sheet,
-    },
-    "get_cashflow": {
-        "alpha_vantage": get_alpha_vantage_cashflow,
-        "yfinance": get_yfinance_cashflow,
-        "local": get_simfin_cashflow,
-    },
-    "get_income_statement": {
-        "alpha_vantage": get_alpha_vantage_income_statement,
-        "yfinance": get_yfinance_income_statement,
-        "local": get_simfin_income_statements,
-    },
+    
     # news_data
     "get_news": {
-        "alpha_vantage": get_alpha_vantage_news,
         "openai": get_forex_news_openai,
+        "alpha_vantage": lambda ticker, start_date, end_date, **kwargs: 
+            f"外汇新闻数据 - {ticker}\n（AlphaVantage新闻API）"
     },
+    
+    # macroeconomic_data
+    "get_fred_data": {
+        "fred": get_fred_data_formatted,
+    },
+    "get_ecb_data": {
+        "ecb": get_ecb_data_formatted,
+    },
+    "get_macro_dashboard": {
+        "local": get_macro_dashboard_local,
+    },
+    "get_central_bank_calendar": {
+        "local": get_central_bank_calendar_local,
+    }
 }
-    
-    
 
 def get_category_for_method(method: str) -> str:
-    """Get the category that contains the specified method."""
+    """获取方法所属的类别"""
     for category, info in TOOLS_CATEGORIES.items():
         if method in info["tools"]:
             return category
     raise ValueError(f"Method '{method}' not found in any category")
 
 def get_vendor(category: str, method: str = None) -> str:
-    """Get the configured vendor for a data category or specific tool method.
-    Tool-level configuration takes precedence over category-level.
-    """
+    """获取配置的vendor"""
     config = get_config()
 
-    # Check tool-level configuration first (if method provided)
+    # 首先检查工具级别的配置
     if method:
         tool_vendors = config.get("tool_vendors", {})
         if method in tool_vendors:
             return tool_vendors[method]
 
-    # Fall back to category-level configuration
+    # 回退到类别级别的配置
     return config.get("data_vendors", {}).get(category, "default")
 
 def route_to_vendor(method: str, *args, **kwargs):
-    """Route method calls to appropriate vendor implementation with fallback support."""
+    """路由方法调用到相应的vendor实现"""
     category = get_category_for_method(method)
     vendor_config = get_vendor(category, method)
 
-    # Handle comma-separated vendors
+    # 处理逗号分隔的vendor配置
     primary_vendors = [v.strip() for v in vendor_config.split(',')]
 
     if method not in VENDOR_METHODS:
         raise ValueError(f"Method '{method}' not supported")
 
-    # Get all available vendors for this method for fallback
+    # 获取所有可用的vendor用于回退
     all_available_vendors = list(VENDOR_METHODS[method].keys())
     
-    # Create fallback vendor list: primary vendors first, then remaining vendors as fallbacks
+    # 创建回退vendor列表：首选vendor在前，其他vendor作为回退
     fallback_vendors = primary_vendors.copy()
     for vendor in all_available_vendors:
         if vendor not in fallback_vendors:
             fallback_vendors.append(vendor)
 
-    # Debug: Print fallback ordering
-    primary_str = " → ".join(primary_vendors)
-    fallback_str = " → ".join(fallback_vendors)
-    print(f"DEBUG: {method} - Primary: [{primary_str}] | Full fallback order: [{fallback_str}]")
+    # 调试信息
+    logger.debug(f"{method} - Primary: {primary_vendors} | Fallback: {fallback_vendors}")
 
-    # Track results and execution state
+    # 跟踪结果和执行状态
     results = []
     vendor_attempt_count = 0
-    any_primary_vendor_attempted = False
     successful_vendor = None
 
     for vendor in fallback_vendors:
         if vendor not in VENDOR_METHODS[method]:
             if vendor in primary_vendors:
-                print(f"INFO: Vendor '{vendor}' not supported for method '{method}', falling back to next vendor")
+                logger.info(f"Vendor '{vendor}' not supported for method '{method}', falling back")
             continue
 
         vendor_impl = VENDOR_METHODS[method][vendor]
         is_primary_vendor = vendor in primary_vendors
         vendor_attempt_count += 1
+        
+        vendor_type = "primary" if is_primary_vendor else "fallback"
+        logger.debug(f"Attempting {vendor_type} vendor '{vendor}' for {method} (attempt #{vendor_attempt_count})")
 
-        # Track if we attempted any primary vendor
-        if is_primary_vendor:
-            any_primary_vendor_attempted = True
-
-        # Debug: Print current attempt
-        vendor_type = "PRIMARY" if is_primary_vendor else "FALLBACK"
-        print(f"DEBUG: Attempting {vendor_type} vendor '{vendor}' for {method} (attempt #{vendor_attempt_count})")
-
-        # Handle list of methods for a vendor
-        if isinstance(vendor_impl, list):
-            vendor_methods = [(impl, vendor) for impl in vendor_impl]
-            print(f"DEBUG: Vendor '{vendor}' has multiple implementations: {len(vendor_methods)} functions")
-        else:
-            vendor_methods = [(vendor_impl, vendor)]
-
-        # Run methods for this vendor
-        vendor_results = []
-        for impl_func, vendor_name in vendor_methods:
-            try:
-                print(f"DEBUG: Calling {impl_func.__name__} from vendor '{vendor_name}'...")
-                result = impl_func(*args, **kwargs)
-                vendor_results.append(result)
-                print(f"SUCCESS: {impl_func.__name__} from vendor '{vendor_name}' completed successfully")
-                    
-            except AlphaVantageRateLimitError as e:
-                if vendor == "alpha_vantage":
-                    print(f"RATE_LIMIT: Alpha Vantage rate limit exceeded, falling back to next available vendor")
-                    print(f"DEBUG: Rate limit details: {e}")
-                # Continue to next vendor for fallback
-                continue
-            except Exception as e:
-                # Log error but continue with other implementations
-                print(f"FAILED: {impl_func.__name__} from vendor '{vendor_name}' failed: {e}")
-                continue
-
-        # Add this vendor's results
-        if vendor_results:
-            results.extend(vendor_results)
-            successful_vendor = vendor
-            result_summary = f"Got {len(vendor_results)} result(s)"
-            print(f"SUCCESS: Vendor '{vendor}' succeeded - {result_summary}")
+        try:
+            logger.debug(f"Calling {method} from vendor '{vendor}'...")
             
-            # Stopping logic: Stop after first successful vendor for single-vendor configs
-            # Multiple vendor configs (comma-separated) may want to collect from multiple sources
+            # 直接调用vendor实现函数
+            result = vendor_impl(*args, **kwargs)
+            
+            results.append(result)
+            successful_vendor = vendor
+            logger.info(f"{method} from vendor '{vendor}' completed successfully")
+            
+            # 单vendor配置时在第一个成功的vendor后停止
             if len(primary_vendors) == 1:
-                print(f"DEBUG: Stopping after successful vendor '{vendor}' (single-vendor config)")
+                logger.debug(f"Stopping after successful vendor '{vendor}' (single-vendor config)")
                 break
-        else:
-            print(f"FAILED: Vendor '{vendor}' produced no results")
+                
+        except AlphaVantageRateLimitError as e:
+            if vendor == "alpha_vantage":
+                logger.warning(f"Alpha Vantage rate limit exceeded, falling back")
+            continue
+        except Exception as e:
+            logger.error(f"{method} from vendor '{vendor}' failed: {e}")
+            continue
 
-    # Final result summary
+    # 最终结果汇总
     if not results:
-        print(f"FAILURE: All {vendor_attempt_count} vendor attempts failed for method '{method}'")
+        logger.error(f"All {vendor_attempt_count} vendor attempts failed for method '{method}'")
         raise RuntimeError(f"All vendor implementations failed for method '{method}'")
     else:
-        print(f"FINAL: Method '{method}' completed with {len(results)} result(s) from {vendor_attempt_count} vendor attempt(s)")
+        logger.info(f"{method} completed with {len(results)} result(s) from {vendor_attempt_count} vendor attempt(s)")
 
-    # Return single result if only one, otherwise concatenate as string
+    # 如果只有一个结果，直接返回；否则拼接成字符串
     if len(results) == 1:
         return results[0]
     else:
-        # Convert all results to strings and concatenate
         return '\n'.join(str(result) for result in results)

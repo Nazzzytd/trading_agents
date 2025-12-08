@@ -6,6 +6,7 @@ from .utils.memory import FinancialSituationMemory
 from .analysts.market_analyst import create_market_analyst
 from .analysts.news_analyst import create_news_analyst
 from .analysts.technical_analyst import create_technical_analyst
+from .analysts.quantitative_analyst import create_quantitative_analyst, create_llm_enhanced_quantitative_analyst
 
 from .researchers.bear_researcher import create_bear_researcher
 from .researchers.bull_researcher import create_bull_researcher

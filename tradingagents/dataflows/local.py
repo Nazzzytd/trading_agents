@@ -1,475 +1,290 @@
-from typing import Annotated
+"""
+宏观经济本地工具函数
+"""
+from datetime import datetime, timedelta
+import logging
+from typing import Dict, Any, Optional
 import pandas as pd
 import os
-from .config import DATA_DIR
-from datetime import datetime
-from dateutil.relativedelta import relativedelta
-import json
-from .vendors.reddit_utils import fetch_top_from_category
-from tqdm import tqdm
+from ..config import DATA_DIR
 
-def get_YFin_data_window(
-    symbol: Annotated[str, "ticker symbol of the company"],
-    curr_date: Annotated[str, "Start date in yyyy-mm-dd format"],
-    look_back_days: Annotated[int, "how many days to look back"],
-) -> str:
-    # calculate past days
-    date_obj = datetime.strptime(curr_date, "%Y-%m-%d")
-    before = date_obj - relativedelta(days=look_back_days)
-    start_date = before.strftime("%Y-%m-%d")
+logger = logging.getLogger(__name__)
 
-    # read in data
-    data = pd.read_csv(
-        os.path.join(
-            DATA_DIR,
-            f"market_data/price_data/{symbol}-YFin-data-2015-01-01-2025-03-25.csv",
-        )
-    )
-
-    # Extract just the date part for comparison
-    data["DateOnly"] = data["Date"].str[:10]
-
-    # Filter data between the start and end dates (inclusive)
-    filtered_data = data[
-        (data["DateOnly"] >= start_date) & (data["DateOnly"] <= curr_date)
-    ]
-
-    # Drop the temporary column we created
-    filtered_data = filtered_data.drop("DateOnly", axis=1)
-
-    # Set pandas display options to show the full DataFrame
-    with pd.option_context(
-        "display.max_rows", None, "display.max_columns", None, "display.width", None
-    ):
-        df_string = filtered_data.to_string()
-
-    return (
-        f"## Raw Market Data for {symbol} from {start_date} to {curr_date}:\n\n"
-        + df_string
-    )
-
-def get_YFin_data(
-    symbol: Annotated[str, "ticker symbol of the company"],
-    start_date: Annotated[str, "Start date in yyyy-mm-dd format"],
-    end_date: Annotated[str, "End date in yyyy-mm-dd format"],
-) -> str:
-    # read in data
-    data = pd.read_csv(
-        os.path.join(
-            DATA_DIR,
-            f"market_data/price_data/{symbol}-YFin-data-2015-01-01-2025-03-25.csv",
-        )
-    )
-
-    if end_date > "2025-03-25":
-        raise Exception(
-            f"Get_YFin_Data: {end_date} is outside of the data range of 2015-01-01 to 2025-03-25"
-        )
-
-    # Extract just the date part for comparison
-    data["DateOnly"] = data["Date"].str[:10]
-
-    # Filter data between the start and end dates (inclusive)
-    filtered_data = data[
-        (data["DateOnly"] >= start_date) & (data["DateOnly"] <= end_date)
-    ]
-
-    # Drop the temporary column we created
-    filtered_data = filtered_data.drop("DateOnly", axis=1)
-
-    # remove the index from the dataframe
-    filtered_data = filtered_data.reset_index(drop=True)
-
-    return filtered_data
-
-def get_finnhub_news(
-    query: Annotated[str, "Search query or ticker symbol"],
-    start_date: Annotated[str, "Start date in yyyy-mm-dd format"],
-    end_date: Annotated[str, "End date in yyyy-mm-dd format"],
-):
-    """
-    Retrieve news about a company within a time frame
-
-    Args
-        query (str): Search query or ticker symbol
-        start_date (str): Start date in yyyy-mm-dd format
-        end_date (str): End date in yyyy-mm-dd format
-    Returns
-        str: dataframe containing the news of the company in the time frame
-
-    """
-
-    result = get_data_in_range(query, start_date, end_date, "news_data", DATA_DIR)
-
-    if len(result) == 0:
-        return ""
-
-    combined_result = ""
-    for day, data in result.items():
-        if len(data) == 0:
-            continue
-        for entry in data:
-            current_news = (
-                "### " + entry["headline"] + f" ({day})" + "\n" + entry["summary"]
-            )
-            combined_result += current_news + "\n\n"
-
-    return f"## {query} News, from {start_date} to {end_date}:\n" + str(combined_result)
-
-
-def get_finnhub_company_insider_sentiment(
-    ticker: Annotated[str, "ticker symbol for the company"],
-    curr_date: Annotated[str, "current date you are trading at, yyyy-mm-dd"],
-):
-    """
-    Retrieve insider sentiment about a company (retrieved from public SEC information) for the past 15 days
-    Args:
-        ticker (str): ticker symbol of the company
-        curr_date (str): current date you are trading on, yyyy-mm-dd
-    Returns:
-        str: a report of the sentiment in the past 15 days starting at curr_date
-    """
-
-    date_obj = datetime.strptime(curr_date, "%Y-%m-%d")
-    before = date_obj - relativedelta(days=15)  # Default 15 days lookback
-    before = before.strftime("%Y-%m-%d")
-
-    data = get_data_in_range(ticker, before, curr_date, "insider_senti", DATA_DIR)
-
-    if len(data) == 0:
-        return ""
-
-    result_str = ""
-    seen_dicts = []
-    for date, senti_list in data.items():
-        for entry in senti_list:
-            if entry not in seen_dicts:
-                result_str += f"### {entry['year']}-{entry['month']}:\nChange: {entry['change']}\nMonthly Share Purchase Ratio: {entry['mspr']}\n\n"
-                seen_dicts.append(entry)
-
-    return (
-        f"## {ticker} Insider Sentiment Data for {before} to {curr_date}:\n"
-        + result_str
-        + "The change field refers to the net buying/selling from all insiders' transactions. The mspr field refers to monthly share purchase ratio."
-    )
-
-
-def get_finnhub_company_insider_transactions(
-    ticker: Annotated[str, "ticker symbol"],
-    curr_date: Annotated[str, "current date you are trading at, yyyy-mm-dd"],
-):
-    """
-    Retrieve insider transcaction information about a company (retrieved from public SEC information) for the past 15 days
-    Args:
-        ticker (str): ticker symbol of the company
-        curr_date (str): current date you are trading at, yyyy-mm-dd
-    Returns:
-        str: a report of the company's insider transaction/trading informtaion in the past 15 days
-    """
-
-    date_obj = datetime.strptime(curr_date, "%Y-%m-%d")
-    before = date_obj - relativedelta(days=15)  # Default 15 days lookback
-    before = before.strftime("%Y-%m-%d")
-
-    data = get_data_in_range(ticker, before, curr_date, "insider_trans", DATA_DIR)
-
-    if len(data) == 0:
-        return ""
-
-    result_str = ""
-
-    seen_dicts = []
-    for date, senti_list in data.items():
-        for entry in senti_list:
-            if entry not in seen_dicts:
-                result_str += f"### Filing Date: {entry['filingDate']}, {entry['name']}:\nChange:{entry['change']}\nShares: {entry['share']}\nTransaction Price: {entry['transactionPrice']}\nTransaction Code: {entry['transactionCode']}\n\n"
-                seen_dicts.append(entry)
-
-    return (
-        f"## {ticker} insider transactions from {before} to {curr_date}:\n"
-        + result_str
-        + "The change field reflects the variation in share count—here a negative number indicates a reduction in holdings—while share specifies the total number of shares involved. The transactionPrice denotes the per-share price at which the trade was executed, and transactionDate marks when the transaction occurred. The name field identifies the insider making the trade, and transactionCode (e.g., S for sale) clarifies the nature of the transaction. FilingDate records when the transaction was officially reported, and the unique id links to the specific SEC filing, as indicated by the source. Additionally, the symbol ties the transaction to a particular company, isDerivative flags whether the trade involves derivative securities, and currency notes the currency context of the transaction."
-    )
-
-def get_data_in_range(ticker, start_date, end_date, data_type, data_dir, period=None):
-    """
-    Gets finnhub data saved and processed on disk.
-    Args:
-        start_date (str): Start date in YYYY-MM-DD format.
-        end_date (str): End date in YYYY-MM-DD format.
-        data_type (str): Type of data from finnhub to fetch. Can be insider_trans, SEC_filings, news_data, insider_senti, or fin_as_reported.
-        data_dir (str): Directory where the data is saved.
-        period (str): Default to none, if there is a period specified, should be annual or quarterly.
-    """
-
-    if period:
-        data_path = os.path.join(
-            data_dir,
-            "finnhub_data",
-            data_type,
-            f"{ticker}_{period}_data_formatted.json",
-        )
-    else:
-        data_path = os.path.join(
-            data_dir, "finnhub_data", data_type, f"{ticker}_data_formatted.json"
-        )
-
-    data = open(data_path, "r")
-    data = json.load(data)
-
-    # filter keys (date, str in format YYYY-MM-DD) by the date range (str, str in format YYYY-MM-DD)
-    filtered_data = {}
-    for key, value in data.items():
-        if start_date <= key <= end_date and len(value) > 0:
-            filtered_data[key] = value
-    return filtered_data
-
-def get_simfin_balance_sheet(
-    ticker: Annotated[str, "ticker symbol"],
-    freq: Annotated[
-        str,
-        "reporting frequency of the company's financial history: annual / quarterly",
-    ],
-    curr_date: Annotated[str, "current date you are trading at, yyyy-mm-dd"],
-):
-    data_path = os.path.join(
-        DATA_DIR,
-        "fundamental_data",
-        "simfin_data_all",
-        "balance_sheet",
-        "companies",
-        "us",
-        f"us-balance-{freq}.csv",
-    )
-    df = pd.read_csv(data_path, sep=";")
-
-    # Convert date strings to datetime objects and remove any time components
-    df["Report Date"] = pd.to_datetime(df["Report Date"], utc=True).dt.normalize()
-    df["Publish Date"] = pd.to_datetime(df["Publish Date"], utc=True).dt.normalize()
-
-    # Convert the current date to datetime and normalize
-    curr_date_dt = pd.to_datetime(curr_date, utc=True).normalize()
-
-    # Filter the DataFrame for the given ticker and for reports that were published on or before the current date
-    filtered_df = df[(df["Ticker"] == ticker) & (df["Publish Date"] <= curr_date_dt)]
-
-    # Check if there are any available reports; if not, return a notification
-    if filtered_df.empty:
-        print("No balance sheet available before the given current date.")
-        return ""
-
-    # Get the most recent balance sheet by selecting the row with the latest Publish Date
-    latest_balance_sheet = filtered_df.loc[filtered_df["Publish Date"].idxmax()]
-
-    # drop the SimFinID column
-    latest_balance_sheet = latest_balance_sheet.drop("SimFinId")
-
-    return (
-        f"## {freq} balance sheet for {ticker} released on {str(latest_balance_sheet['Publish Date'])[0:10]}: \n"
-        + str(latest_balance_sheet)
-        + "\n\nThis includes metadata like reporting dates and currency, share details, and a breakdown of assets, liabilities, and equity. Assets are grouped as current (liquid items like cash and receivables) and noncurrent (long-term investments and property). Liabilities are split between short-term obligations and long-term debts, while equity reflects shareholder funds such as paid-in capital and retained earnings. Together, these components ensure that total assets equal the sum of liabilities and equity."
-    )
-
-
-def get_simfin_cashflow(
-    ticker: Annotated[str, "ticker symbol"],
-    freq: Annotated[
-        str,
-        "reporting frequency of the company's financial history: annual / quarterly",
-    ],
-    curr_date: Annotated[str, "current date you are trading at, yyyy-mm-dd"],
-):
-    data_path = os.path.join(
-        DATA_DIR,
-        "fundamental_data",
-        "simfin_data_all",
-        "cash_flow",
-        "companies",
-        "us",
-        f"us-cashflow-{freq}.csv",
-    )
-    df = pd.read_csv(data_path, sep=";")
-
-    # Convert date strings to datetime objects and remove any time components
-    df["Report Date"] = pd.to_datetime(df["Report Date"], utc=True).dt.normalize()
-    df["Publish Date"] = pd.to_datetime(df["Publish Date"], utc=True).dt.normalize()
-
-    # Convert the current date to datetime and normalize
-    curr_date_dt = pd.to_datetime(curr_date, utc=True).normalize()
-
-    # Filter the DataFrame for the given ticker and for reports that were published on or before the current date
-    filtered_df = df[(df["Ticker"] == ticker) & (df["Publish Date"] <= curr_date_dt)]
-
-    # Check if there are any available reports; if not, return a notification
-    if filtered_df.empty:
-        print("No cash flow statement available before the given current date.")
-        return ""
-
-    # Get the most recent cash flow statement by selecting the row with the latest Publish Date
-    latest_cash_flow = filtered_df.loc[filtered_df["Publish Date"].idxmax()]
-
-    # drop the SimFinID column
-    latest_cash_flow = latest_cash_flow.drop("SimFinId")
-
-    return (
-        f"## {freq} cash flow statement for {ticker} released on {str(latest_cash_flow['Publish Date'])[0:10]}: \n"
-        + str(latest_cash_flow)
-        + "\n\nThis includes metadata like reporting dates and currency, share details, and a breakdown of cash movements. Operating activities show cash generated from core business operations, including net income adjustments for non-cash items and working capital changes. Investing activities cover asset acquisitions/disposals and investments. Financing activities include debt transactions, equity issuances/repurchases, and dividend payments. The net change in cash represents the overall increase or decrease in the company's cash position during the reporting period."
-    )
-
-
-def get_simfin_income_statements(
-    ticker: Annotated[str, "ticker symbol"],
-    freq: Annotated[
-        str,
-        "reporting frequency of the company's financial history: annual / quarterly",
-    ],
-    curr_date: Annotated[str, "current date you are trading at, yyyy-mm-dd"],
-):
-    data_path = os.path.join(
-        DATA_DIR,
-        "fundamental_data",
-        "simfin_data_all",
-        "income_statements",
-        "companies",
-        "us",
-        f"us-income-{freq}.csv",
-    )
-    df = pd.read_csv(data_path, sep=";")
-
-    # Convert date strings to datetime objects and remove any time components
-    df["Report Date"] = pd.to_datetime(df["Report Date"], utc=True).dt.normalize()
-    df["Publish Date"] = pd.to_datetime(df["Publish Date"], utc=True).dt.normalize()
-
-    # Convert the current date to datetime and normalize
-    curr_date_dt = pd.to_datetime(curr_date, utc=True).normalize()
-
-    # Filter the DataFrame for the given ticker and for reports that were published on or before the current date
-    filtered_df = df[(df["Ticker"] == ticker) & (df["Publish Date"] <= curr_date_dt)]
-
-    # Check if there are any available reports; if not, return a notification
-    if filtered_df.empty:
-        print("No income statement available before the given current date.")
-        return ""
-
-    # Get the most recent income statement by selecting the row with the latest Publish Date
-    latest_income = filtered_df.loc[filtered_df["Publish Date"].idxmax()]
-
-    # drop the SimFinID column
-    latest_income = latest_income.drop("SimFinId")
-
-    return (
-        f"## {freq} income statement for {ticker} released on {str(latest_income['Publish Date'])[0:10]}: \n"
-        + str(latest_income)
-        + "\n\nThis includes metadata like reporting dates and currency, share details, and a comprehensive breakdown of the company's financial performance. Starting with Revenue, it shows Cost of Revenue and resulting Gross Profit. Operating Expenses are detailed, including SG&A, R&D, and Depreciation. The statement then shows Operating Income, followed by non-operating items and Interest Expense, leading to Pretax Income. After accounting for Income Tax and any Extraordinary items, it concludes with Net Income, representing the company's bottom-line profit or loss for the period."
-    )
-
-
-def get_reddit_global_news(
-    curr_date: Annotated[str, "Current date in yyyy-mm-dd format"],
-    look_back_days: Annotated[int, "Number of days to look back"] = 7,
-    limit: Annotated[int, "Maximum number of articles to return"] = 5,
+def get_macro_dashboard_local(
+    currency_pair: str, 
+    lookback_months: int = 12, 
+    **kwargs
 ) -> str:
     """
-    Retrieve the latest top reddit news
-    Args:
-        curr_date: Current date in yyyy-mm-dd format
-        look_back_days: Number of days to look back (default 7)
-        limit: Maximum number of articles to return (default 5)
-    Returns:
-        str: A formatted string containing the latest news articles posts on reddit
+    生成宏观经济仪表板 - 本地实现
     """
-
-    curr_date_dt = datetime.strptime(curr_date, "%Y-%m-%d")
-    before = curr_date_dt - relativedelta(days=look_back_days)
-    before = before.strftime("%Y-%m-%d")
-
-    posts = []
-    # iterate from before to curr_date
-    curr_iter_date = datetime.strptime(before, "%Y-%m-%d")
-
-    total_iterations = (curr_date_dt - curr_iter_date).days + 1
-    pbar = tqdm(desc=f"Getting Global News on {curr_date}", total=total_iterations)
-
-    while curr_iter_date <= curr_date_dt:
-        curr_date_str = curr_iter_date.strftime("%Y-%m-%d")
-        fetch_result = fetch_top_from_category(
-            "global_news",
-            curr_date_str,
-            limit,
-            data_path=os.path.join(DATA_DIR, "reddit_data"),
-        )
-        posts.extend(fetch_result)
-        curr_iter_date += relativedelta(days=1)
-        pbar.update(1)
-
-    pbar.close()
-
-    if len(posts) == 0:
-        return ""
-
-    news_str = ""
-    for post in posts:
-        if post["content"] == "":
-            news_str += f"### {post['title']}\n\n"
+    try:
+        # 解析货币对
+        if "/" in currency_pair:
+            base_currency, quote_currency = currency_pair.split("/")
         else:
-            news_str += f"### {post['title']}\n\n{post['content']}\n\n"
+            base_currency = currency_pair[:3]
+            quote_currency = currency_pair[3:]
+        
+        # 根据货币对确定相关指标
+        usd_indicators = []
+        eur_indicators = []
+        
+        if base_currency == "USD" or quote_currency == "USD":
+            usd_indicators = ["FEDFUNDS", "CPIAUCSL", "UNRATE", "DGS10"]
+        
+        if base_currency == "EUR" or quote_currency == "EUR":
+            eur_indicators = ["DFR", "HICP", "UNEMPLOYMENT"]
+        
+        reports = []
+        
+        # 获取美国数据
+        for indicator in usd_indicators:
+            try:
+                from ..vendors.fred_data import get_fred_data_formatted
+                report = get_fred_data_formatted(series_id=indicator, limit=50)
+                reports.append(f"\n## {indicator}\n{report}")
+            except Exception as e:
+                logger.warning(f"Failed to get FRED indicator {indicator}: {e}")
+                reports.append(f"\n## {indicator}\nError: {str(e)}")
+        
+        # 获取欧元区数据
+        for indicator_key in eur_indicators:
+            try:
+                from ..vendors.ecb_data import get_ecb_data_formatted
+                
+                # 映射指标键到ECB系列键
+                ecb_series_map = {
+                    "DFR": "FM.B.U2.EUR.4F.KR.DFR.LEV",
+                    "HICP": "ICP.M.U2.N.000000.4.ANR",
+                    "UNEMPLOYMENT": "STS.M.I8.Y.UNEH.RTT000.4.000",
+                }
+                
+                series_key = ecb_series_map.get(indicator_key, indicator_key)
+                report = get_ecb_data_formatted(series_key=series_key)
+                reports.append(f"\n## {indicator_key}\n{report}")
+            except Exception as e:
+                logger.warning(f"Failed to get ECB indicator {indicator_key}: {e}")
+                reports.append(f"\n## {indicator_key}\nError: {str(e)}")
+        
+        # 生成仪表板
+        if not reports:
+            return f"No macroeconomic data available for {currency_pair}"
+        
+        dashboard = f"""
+# 宏观经济仪表板: {currency_pair}
+**分析货币对**: {base_currency}/{quote_currency}
+**数据源**: FRED + ECB SDW
+**指标数量**: {len(reports)}
+**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
-    return f"## Global News Reddit, from {before} to {curr_date}:\n{news_str}"
+## 执行摘要
+基于相关宏观经济指标的分析结果。
 
+## 详细指标分析
+{"".join(reports)}
 
-def get_reddit_company_news(
-    query: Annotated[str, "Search query or ticker symbol"],
-    start_date: Annotated[str, "Start date in yyyy-mm-dd format"],
-    end_date: Annotated[str, "End date in yyyy-mm-dd format"],
+## 综合分析建议
+1. **货币政策对比**: 分析两国利率政策差异
+2. **通胀动态**: 监控CPI/HICP变化
+3. **就业市场**: 评估失业率走势
+4. **国债收益率**: 关注长短期利率差
+
+## 数据源说明
+- FRED: 美国经济数据
+- ECB SDW: 欧元区经济数据
+        """
+        
+        return dashboard.strip()
+        
+    except Exception as e:
+        logger.error(f"Error generating macroeconomic dashboard: {e}")
+        return f"Error generating macroeconomic dashboard: {str(e)}"
+
+def get_central_bank_calendar_local(
+    days_ahead: int = 30, 
+    **kwargs
 ) -> str:
     """
-    Retrieve the latest top reddit news
-    Args:
-        query: Search query or ticker symbol
-        start_date: Start date in yyyy-mm-dd format
-        end_date: End date in yyyy-mm-dd format
-    Returns:
-        str: A formatted string containing news articles posts on reddit
+    获取央行事件日历 - 本地实现（示例数据）
     """
+    try:
+        # 首先尝试从本地缓存文件获取
+        cache_path = os.path.join(DATA_DIR, "macro_data", "economic_calendar_cache.json")
+        
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, 'r') as f:
+                    cached_data = json.load(f)
+                
+                # 检查缓存是否过期（1天）
+                cache_date = datetime.fromisoformat(cached_data.get('last_updated', '2000-01-01'))
+                if (datetime.now() - cache_date).days < 1:
+                    return format_calendar_from_cache(cached_data, days_ahead)
+            except Exception as e:
+                logger.warning(f"Failed to read calendar cache: {e}")
+        
+        # 如果没有缓存或缓存过期，生成示例数据
+        today = datetime.now()
+        
+        calendar = f"""
+# 央行与经济数据日历
+**生成时间**: {today.strftime('%Y-%m-%d %H:%M:%S')}
+**时间范围**: {today.strftime('%Y-%m-%d')} 至 {(today + timedelta(days=days_ahead)).strftime('%Y-%m-%d')}
+**数据状态**: 示例数据（建议集成真实经济日历API）
 
-    start_date_dt = datetime.strptime(start_date, "%Y-%m-%d")
-    end_date_dt = datetime.strptime(end_date, "%Y-%m-%d")
+## 主要央行利率决议
+- **美联储 (FOMC)**: 每6-8周会议，关注点阵图和新闻发布会
+- **欧洲央行 (ECB)**: 每6周会议，关注拉加德新闻发布会
+- **日本央行 (BOJ)**: 每月会议，关注收益率曲线控制调整
+- **英国央行 (BOE)**: 每6周会议，关注通胀报告
 
-    posts = []
-    # iterate from start_date to end_date
-    curr_date = start_date_dt
+## 重要经济数据发布（示例时间）
+- **美国非农就业数据**: 每月第一个周五 20:30 UTC
+- **美国CPI通胀数据**: 每月中旬 12:30 UTC
+- **欧元区HICP通胀**: 每月最后工作日 10:00 UTC
+- **中国PMI数据**: 每月最后一天 01:00 UTC
 
-    total_iterations = (end_date_dt - curr_date).days + 1
-    pbar = tqdm(
-        desc=f"Getting Company News for {query} from {start_date} to {end_date}",
-        total=total_iterations,
-    )
+## 示例近期事件
+"""
+        
+        # 生成示例事件
+        for i in range(min(days_ahead, 15)):
+            event_date = today + timedelta(days=i)
+            events = []
+            
+            # 根据日期添加示例事件
+            if i % 7 == 0:  # 每周一
+                events.append("主要央行官员讲话")
+            if i % 14 == 5:  # 每两周的周五
+                events.append("美国非农就业数据")
+            if i % 30 == 12:  # 每月12号左右
+                events.append("美国CPI数据发布")
+            if i % 30 == 18:  # 每月18号左右
+                events.append("美联储利率决议")
+            
+            if events:
+                calendar += f"- **{event_date.strftime('%Y-%m-%d')}**: {', '.join(events)}\n"
+        
+        calendar += f"""
+## 集成建议
+1. **推荐数据源**: 
+   - ForexFactory API（专业外汇日历）
+   - Investing.com经济日历
+   - Bloomberg Terminal（企业级）
+   - 各国央行官方网站
 
-    while curr_date <= end_date_dt:
-        curr_date_str = curr_date.strftime("%Y-%m-%d")
-        fetch_result = fetch_top_from_category(
-            "company_news",
-            curr_date_str,
-            10,  # max limit per day
-            query,
-            data_path=os.path.join(DATA_DIR, "reddit_data"),
-        )
-        posts.extend(fetch_result)
-        curr_date += relativedelta(days=1)
+2. **实现建议**:
+   - 添加经济日历vendor模块
+   - 定期爬取或订阅API更新
+   - 设置事件提醒和自动刷新
 
-        pbar.update(1)
+## 当前可用数据源
+✅ FRED (美国经济数据) - 实时API
+✅ ECB SDW (欧元区经济数据) - 实时API
+⏳ 经济日历API (待集成)
+✅ 本地缓存支持 (已实现)
 
-    pbar.close()
+## 数据更新频率
+- 央行利率决议: 实时更新
+- 经济数据: 按发布时间表
+- 市场预期: 持续变化
+- 突发事件: 实时监控
+        """
+        
+        return calendar.strip()
+        
+    except Exception as e:
+        logger.error(f"Error generating central bank calendar: {e}")
+        return f"Error generating central bank calendar: {str(e)}"
 
-    if len(posts) == 0:
-        return ""
+def format_calendar_from_cache(cached_data: Dict[str, Any], days_ahead: int) -> str:
+    """从缓存数据格式化日历"""
+    today = datetime.now()
+    
+    calendar = f"""
+# 央行与经济数据日历（缓存数据）
+**数据更新时间**: {cached_data.get('last_updated', 'Unknown')}
+**时间范围**: {today.strftime('%Y-%m-%d')} 至 {(today + timedelta(days=days_ahead)).strftime('%Y-%m-%d')}
+**数据来源**: {cached_data.get('source', 'Local Cache')}
 
-    news_str = ""
-    for post in posts:
-        if post["content"] == "":
-            news_str += f"### {post['title']}\n\n"
-        else:
-            news_str += f"### {post['title']}\n\n{post['content']}\n\n"
+## 近期重要事件
+"""
+    
+    events = cached_data.get('events', [])
+    for event in events[:10]:  # 显示前10个事件
+        calendar += f"- **{event.get('date', 'Unknown')}**: {event.get('event', '')} ({event.get('impact', 'Medium')} impact)\n"
+    
+    calendar += f"""
+## 缓存信息
+- **事件总数**: {len(events)}
+- **缓存有效性**: 24小时
+- **下次更新**: {(datetime.now() + timedelta(hours=24)).strftime('%Y-%m-%d %H:%M')}
 
-    return f"##{query} News Reddit, from {start_date} to {end_date}:\n\n{news_str}"
+## 数据说明
+缓存数据可能不完全实时，重大事件前建议手动刷新。
+"""
+    
+    return calendar.strip()
+
+def get_quantitative_analysis_local(
+    ticker: str,
+    curr_date: str,
+    lookback_days: int = 252,
+    **kwargs
+) -> str:
+    """
+    本地量化分析函数 - 遵循你的local.py架构
+    """
+    try:
+        # 这里可以添加量化分析逻辑
+        # 例如：波动率计算、相关性分析、风险指标等
+        
+        analysis = f"""
+# 量化分析报告: {ticker}
+**分析日期**: {curr_date}
+**回看天数**: {lookback_days}
+
+## 统计分析
+（需要实现具体的量化分析逻辑）
+
+## 建议
+1. 实现波动率计算（ATR, Historical Volatility）
+2. 添加相关性分析
+3. 计算风险调整收益指标（Sharpe, Sortino）
+4. 技术指标统计验证
+
+## 当前状态
+量化分析模块待实现，可以参考已有技术指标模块进行扩展。
+"""
+        
+        return analysis.strip()
+        
+    except Exception as e:
+        return f"Error in quantitative analysis: {str(e)}"
+
+# 辅助函数：检查并创建数据目录
+def ensure_macro_data_dir():
+    """确保宏观经济数据目录存在"""
+    macro_dir = os.path.join(DATA_DIR, "macro_data")
+    if not os.path.exists(macro_dir):
+        os.makedirs(macro_dir, exist_ok=True)
+    return macro_dir
+
+# 辅助函数：保存日历缓存
+def save_calendar_cache(calendar_data: Dict[str, Any]):
+    """保存日历数据到缓存"""
+    try:
+        cache_dir = ensure_macro_data_dir()
+        cache_path = os.path.join(cache_dir, "economic_calendar_cache.json")
+        
+        calendar_data['last_updated'] = datetime.now().isoformat()
+        
+        with open(cache_path, 'w') as f:
+            json.dump(calendar_data, f, indent=2)
+        
+        logger.info(f"Calendar cache saved to {cache_path}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save calendar cache: {e}")
+        return False

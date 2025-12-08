@@ -5,6 +5,7 @@ from typing import Annotated, Optional, Dict, Any
 from tradingagents.dataflows.interface import route_to_vendor
 from datetime import datetime, timedelta
 
+
 @tool
 def get_news(
     ticker: Annotated[Optional[str], "Currency pair (e.g., 'EUR/USD', 'USD/JPY') or empty for general forex news"] = "",
