@@ -37,9 +37,17 @@ class GraphSetup:
         self.risk_manager_memory = risk_manager_memory
         self.conditional_logic = conditional_logic
 
+    def _default_should_continue(self, state: AgentState):
+        """默认的继续逻辑"""
+        messages = state["messages"]
+        last_message = messages[-1]
+        if last_message.tool_calls:
+            return "tools"
+        return "Msg Clear"
+
     def setup_graph(
         self, 
-        selected_analysts=["market", "social", "news", "technical", "quantitative"]
+        selected_analysts=["market", "social", "news", "technical", "quantitative", "macroeconomic"]
     ):
         """Set up and compile the agent workflow graph.
 
@@ -50,7 +58,7 @@ class GraphSetup:
                 - "news": News analyst
                 - "technical": Technical analyst
                 - "quantitative": Quantitative analyst
-                - fundamentals已被移除
+                - "macroeconomic": Macroeconomic analyst
         """
         if len(selected_analysts) == 0:
             raise ValueError("Trading Agents Graph Setup Error: no analysts selected!")
@@ -82,6 +90,26 @@ class GraphSetup:
             delete_nodes["news"] = create_msg_delete()
             tool_nodes["news"] = self.tool_nodes.get("news", ToolNode([]))
 
+        # 新增宏观经济分析师
+        if "macroeconomic" in selected_analysts:
+            try:
+                from tradingagents.agents.analysts.macro_analyst import create_macro_analyst
+                analyst_nodes["macroeconomic"] = create_macro_analyst(
+                    self.quick_thinking_llm
+                )
+                delete_nodes["macroeconomic"] = create_msg_delete()
+                # 创建宏观经济工具节点
+                from tradingagents.agents.utils.macro_data_tools import (
+                    get_fred_data,
+                    get_ecb_data,
+                    get_macro_dashboard,
+                )
+                macro_tools = [get_fred_data, get_ecb_data, get_macro_dashboard]
+                tool_nodes["macroeconomic"] = ToolNode(macro_tools)
+                print("✓ 已加载宏观经济分析师")
+            except ImportError as e:
+                print(f"警告: 无法导入宏观经济分析师: {e}")
+
         # 新增技术分析师
         if "technical" in selected_analysts:
             try:
@@ -97,6 +125,7 @@ class GraphSetup:
                 )
                 technical_tools = [get_technical_indicators_data, get_fibonacci_levels]
                 tool_nodes["technical"] = ToolNode(technical_tools)
+                print("✓ 已加载技术分析师")
             except ImportError as e:
                 print(f"警告: 无法导入技术分析师: {e}")
 
@@ -116,6 +145,7 @@ class GraphSetup:
                 )
                 quant_tools = [get_factor_analysis, validate_technical_signal, calculate_risk_metrics]
                 tool_nodes["quantitative"] = ToolNode(quant_tools)
+                print("✓ 已加载量化分析师")
             except ImportError as e:
                 print(f"警告: 无法导入量化分析师: {e}")
 
@@ -183,7 +213,7 @@ class GraphSetup:
                     },
                 )
             else:
-                # 如果没有特定方法，使用通用逻辑
+                # 如果没有特定方法，使用默认逻辑
                 workflow.add_conditional_edges(
                     current_analyst,
                     self._default_should_continue,
@@ -194,7 +224,6 @@ class GraphSetup:
                 )
             
             workflow.add_edge(current_tools, current_analyst)
-
 
             # Connect to next analyst or to Bull Researcher if this is the last analyst
             if i < len(selected_analysts) - 1:

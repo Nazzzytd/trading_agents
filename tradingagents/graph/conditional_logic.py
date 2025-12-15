@@ -43,6 +43,27 @@ class ConditionalLogic:
             return "tools_fundamentals"
         return "Msg Clear Fundamentals"
 
+    def should_continue_macroeconomic(self, state: AgentState):
+        """
+        确定宏观经济分析是否应该继续。
+        这是在原代码基础上新增的函数，用于支持宏观经济分析流程。
+        """
+        messages = state["messages"]
+        last_message = messages[-1]
+        if last_message.tool_calls:
+            # 检查是否是宏观经济相关的工具调用
+            tool_calls = last_message.tool_calls
+            macro_tools = ["get_fred_data", "get_ecb_data", "get_macro_dashboard"]
+            
+            for tool_call in tool_calls:
+                if tool_call.get("name") in macro_tools:
+                    return "tools_macroeconomic"
+            
+            # 如果没有宏观经济工具调用，但仍有其他工具调用，继续宏观经济分析
+            return "tools_macroeconomic"
+        
+        return "Msg Clear Macroeconomic"
+
     def should_continue_technical(self, state: AgentState):
         """Determine if technical analysis should continue."""
         messages = state["messages"]

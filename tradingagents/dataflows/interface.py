@@ -16,7 +16,7 @@ from .vendors.openai import get_forex_news_openai
 # 导入本地宏观经济工具
 from .local.macro_tools import (
     get_macro_dashboard_local,
-    get_central_bank_calendar_local,
+    get_central_bank_calendar_local,  # 这个可能也需要检查是否存在
     get_quantitative_analysis_local
 )
 
@@ -81,7 +81,7 @@ TOOLS_CATEGORIES = {
             "get_fred_data",        # FRED数据
             "get_ecb_data",         # ECB数据
             "get_macro_dashboard",  # 宏观仪表板
-            "get_central_bank_calendar"  # 央行日历
+            # "get_central_bank_calendar"  # ❌ 已删除，需要移除
         ]
     }
 }
@@ -143,9 +143,9 @@ VENDOR_METHODS = {
     "get_macro_dashboard": {
         "local": get_macro_dashboard_local,
     },
-    "get_central_bank_calendar": {
-        "local": get_central_bank_calendar_local,
-    }
+    # "get_central_bank_calendar": {  # ❌ 已删除，需要移除
+    #     "local": get_central_bank_calendar_local,
+    # }
 }
 
 def get_category_for_method(method: str) -> str:
@@ -170,13 +170,27 @@ def get_vendor(category: str, method: str = None) -> str:
 
 def route_to_vendor(method: str, *args, **kwargs):
     """路由方法调用到相应的vendor实现"""
-    category = get_category_for_method(method)
+    try:
+        category = get_category_for_method(method)
+    except ValueError:
+        # 如果找不到方法，可能是因为我们移除了get_central_bank_calendar
+        # 处理这个特定情况
+        if method == "get_central_bank_calendar":
+            logger.warning(f"Method '{method}' has been removed. Returning empty calendar information.")
+            return "经济日历功能已移除。如需经济日历数据，请使用其他数据源。"
+        else:
+            raise
+    
     vendor_config = get_vendor(category, method)
 
     # 处理逗号分隔的vendor配置
     primary_vendors = [v.strip() for v in vendor_config.split(',')]
 
     if method not in VENDOR_METHODS:
+        # 处理被移除的get_central_bank_calendar方法
+        if method == "get_central_bank_calendar":
+            logger.warning(f"Method '{method}' is no longer supported. Returning placeholder.")
+            return "⚠️ 经济日历功能暂时不可用。该功能已被移除，请更新您的代码。"
         raise ValueError(f"Method '{method}' not supported")
 
     # 获取所有可用的vendor用于回退

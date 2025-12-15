@@ -1,11 +1,16 @@
+# /Users/fr./Downloads/TradingAgents-main/tradingagents/agents/utils/macro_data_tools.py
+
 """
-宏观经济数据工具 - 遵循news_data_tools.py的架构模式
-调用vendor层的FRED和ECB数据服务
+宏观经济数据工具
 """
+
 from langchain_core.tools import tool
-from typing import Annotated, Dict, List, Optional
-from tradingagents.dataflows.interface import route_to_vendor
+from typing import Annotated, Dict, List, Optional, Any
 import logging
+from datetime import datetime, timedelta
+
+# 导入vendor层接口
+from tradingagents.dataflows.interface import route_to_vendor
 
 logger = logging.getLogger(__name__)
 
@@ -103,9 +108,6 @@ def get_macro_dashboard(
         # 获取美国数据
         for indicator in usd_indicators:
             try:
-                # 使用route_to_vendor获取数据
-                from tradingagents.dataflows.interface import route_to_vendor
-                
                 report = route_to_vendor(
                     "get_fred_data",
                     series_id=indicator,
@@ -163,7 +165,6 @@ def get_macro_dashboard(
 ## 数据源说明
 - FRED: 美国经济数据
 - ECB SDW: 欧元区经济数据
-- 数据通过统一的vendor架构获取
         """
         
         return dashboard.strip()
@@ -172,45 +173,9 @@ def get_macro_dashboard(
         logger.error(f"Error generating macro dashboard: {e}")
         return f"Error generating macroeconomic dashboard: {str(e)}"
 
-@tool
-def get_central_bank_calendar(
-    days_ahead: Annotated[int, "Number of days to look ahead"] = 30
-) -> str:
-    """
-    Get upcoming central bank events and economic data releases.
-    
-    Args:
-        days_ahead: Number of days to look ahead
-        
-    Returns:
-        str: Calendar of central bank events
-    """
-    # 这里可以后续集成经济日历vendor
-    # 目前返回示例数据
-    from datetime import datetime, timedelta
-    
-    today = datetime.now()
-    
-    calendar = f"""
-# 央行与经济数据日历
-**时间范围**: {today.strftime('%Y-%m-%d')} 至 {(today + timedelta(days=days_ahead)).strftime('%Y-%m-%d')}
-
-## 示例事件（需集成真实数据源）
-- **{today.strftime('%Y-%m-%d')}**: 美联储官员讲话
-- **{(today + timedelta(days=2)).strftime('%Y-%m-%d')}**: 美国CPI数据发布
-- **{(today + timedelta(days=5)).strftime('%Y-%m-%d')}**: 欧洲央行利率决议
-- **{(today + timedelta(days=7)).strftime('%Y-%m-%d')}**: 日本央行政策会议
-- **{(today + timedelta(days=10)).strftime('%Y-%m-%d')}**: 美国非农就业数据
-
-## 集成建议
-1. 添加经济日历vendor（如ForexFactory、Investing.com）
-2. 实现get_economic_calendar工具函数
-3. 设置事件提醒和实时更新机制
-
-## 当前架构
-- ✅ FRED数据vendor
-- ✅ ECB数据vendor  
-- ⏳ 经济日历vendor（待实现）
-        """
-        
-    return calendar.strip()
+# 工具列表导出 - 只保留三个工具
+__all__ = [
+    'get_fred_data',
+    'get_ecb_data', 
+    'get_macro_dashboard'
+]
