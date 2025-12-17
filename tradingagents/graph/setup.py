@@ -47,18 +47,18 @@ class GraphSetup:
 
     def setup_graph(
         self, 
-        selected_analysts=["market", "social", "news", "technical", "quantitative", "macroeconomic"]
+        selected_analysts=["social", "news", "technical", "quantitative", "macroeconomic"]  # ❌ 移除 market
     ):
         """Set up and compile the agent workflow graph.
 
         Args:
             selected_analysts (list): List of analyst types to include. Options are:
-                - "market": Market analyst
                 - "social": Social media analyst
                 - "news": News analyst
                 - "technical": Technical analyst
                 - "quantitative": Quantitative analyst
                 - "macroeconomic": Macroeconomic analyst
+                # "market": Market analyst - ❌ 已移除
         """
         if len(selected_analysts) == 0:
             raise ValueError("Trading Agents Graph Setup Error: no analysts selected!")
@@ -68,20 +68,20 @@ class GraphSetup:
         delete_nodes = {}
         tool_nodes = {}
 
+        # ❌ 移除市场分析师部分
+        
         # 基础分析师
-        if "market" in selected_analysts:
-            analyst_nodes["market"] = create_market_analyst(
-                self.quick_thinking_llm
-            )
-            delete_nodes["market"] = create_msg_delete()
-            tool_nodes["market"] = self.tool_nodes.get("market", ToolNode([]))
-
         if "social" in selected_analysts:
-            analyst_nodes["social"] = create_social_media_analyst(
-                self.quick_thinking_llm
-            )
-            delete_nodes["social"] = create_msg_delete()
-            tool_nodes["social"] = self.tool_nodes.get("social", ToolNode([]))
+            try:
+                from tradingagents.agents.analysts.social_media_analyst import create_social_media_analyst
+                analyst_nodes["social"] = create_social_media_analyst(
+                    self.quick_thinking_llm
+                )
+                delete_nodes["social"] = create_msg_delete()
+                tool_nodes["social"] = self.tool_nodes.get("social", ToolNode([]))
+                print("✓ 已加载社交媒体分析师")
+            except ImportError as e:
+                print(f"警告: 无法导入社交媒体分析师: {e}")
 
         if "news" in selected_analysts:
             analyst_nodes["news"] = create_news_analyst(
@@ -137,13 +137,13 @@ class GraphSetup:
                     self.quick_thinking_llm
                 )
                 delete_nodes["quantitative"] = create_msg_delete()
-                # 创建量化分析工具节点
+                # 创建量化分析工具节点 - 只使用实际存在的函数
                 from tradingagents.agents.utils.quant_data_tools import (
-                    get_factor_analysis,
-                    validate_technical_signal,
-                    calculate_risk_metrics
+                    get_risk_metrics_data,
+                    get_volatility_data,
+                    simple_forex_data
                 )
-                quant_tools = [get_factor_analysis, validate_technical_signal, calculate_risk_metrics]
+                quant_tools = [get_risk_metrics_data, get_volatility_data, simple_forex_data]
                 tool_nodes["quantitative"] = ToolNode(quant_tools)
                 print("✓ 已加载量化分析师")
             except ImportError as e:
@@ -192,6 +192,8 @@ class GraphSetup:
 
         # Define edges
         # Start with the first analyst
+        if not selected_analysts:
+            raise ValueError("必须至少选择一个分析师")
         first_analyst = selected_analysts[0]
         workflow.add_edge(START, f"{first_analyst.capitalize()} Analyst")
 

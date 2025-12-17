@@ -10,7 +10,6 @@ import logging
 from datetime import datetime, timedelta
 
 # 导入vendor层接口
-from tradingagents.dataflows.interface import route_to_vendor
 
 logger = logging.getLogger(__name__)
 

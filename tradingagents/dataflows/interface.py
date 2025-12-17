@@ -1,3 +1,5 @@
+# tradingagents/dataflows/interface.py
+
 from typing import Annotated
 import logging
 
@@ -13,18 +15,10 @@ from .vendors.ecb_data import get_ecb_data_formatted
 # 导入openai新闻vendor
 from .vendors.openai import get_forex_news_openai
 
-# 导入本地宏观经济工具
-from .local.macro_tools import (
-    get_macro_dashboard_local,
-    get_central_bank_calendar_local,  # 这个可能也需要检查是否存在
-    get_quantitative_analysis_local
-)
-
-# 导入量化分析工具 - 只导入需要的工具
-from tradingagents.agents.utils.quant_data_tools import (
-    get_risk_metrics_data,
-    get_volatility_data,
-    simple_forex_data
+# 修正：从 local.py 导入，而不是 local.macro_tools
+from .local import (
+    get_macro_dashboard_local,  # 从 local.py 导入
+    get_quantitative_analysis_local  # 从 local.py 导入
 )
 
 # 导入原有的本地工具
@@ -45,6 +39,9 @@ logger = logging.getLogger(__name__)
 
 # 初始化vendor实例
 twelvedata_forex = TwelveDataForex()
+
+# ⚠️ 修改：将量化分析工具的导入移到后面或函数内部
+# 原因：quant_data_tools 可能导入 interface，造成循环依赖
 
 # 工具类别定义 - 简化量化分析部分
 TOOLS_CATEGORIES = {
@@ -81,7 +78,6 @@ TOOLS_CATEGORIES = {
             "get_fred_data",        # FRED数据
             "get_ecb_data",         # ECB数据
             "get_macro_dashboard",  # 宏观仪表板
-            # "get_central_bank_calendar"  # ❌ 已删除，需要移除
         ]
     }
 }
@@ -96,6 +92,41 @@ VENDOR_LIST = [
     "quant_tools"  # 量化工具vendor
 ]
 
+# ⚠️ 修改：延迟导入量化工具
+_quant_data_tools_imported = False
+_quant_tools = {}
+
+def _import_quant_data_tools():
+    """延迟导入量化数据工具，避免循环依赖"""
+    global _quant_data_tools_imported, _quant_tools
+    
+    if not _quant_data_tools_imported:
+        try:
+            from tradingagents.agents.utils.quant_data_tools import (
+                get_risk_metrics_data,
+                get_volatility_data,
+                simple_forex_data
+            )
+            _quant_tools = {
+                "get_risk_metrics_data": get_risk_metrics_data,
+                "get_volatility_data": get_volatility_data,
+                "simple_forex_data": simple_forex_data,
+            }
+            _quant_data_tools_imported = True
+            logger.info("✓ 成功延迟导入量化数据工具")
+        except ImportError as e:
+            logger.error(f"导入量化数据工具失败: {e}")
+            # 创建占位符函数
+            def placeholder_func(*args, **kwargs):
+                return f"量化工具导入失败: {e}"
+            
+            _quant_tools = {
+                "get_risk_metrics_data": placeholder_func,
+                "get_volatility_data": placeholder_func,
+                "simple_forex_data": placeholder_func,
+            }
+            _quant_data_tools_imported = True
+
 # Vendor方法映射 - 简化版本
 VENDOR_METHODS = {
     # core_forex_apis
@@ -107,23 +138,6 @@ VENDOR_METHODS = {
     # technical_indicators
     "get_indicators": {
         "local": lambda *args, **kwargs: "技术指标计算 - 请使用 technical_indicators_tools.py 模块"
-    },
-    
-    # quantitative_analysis - 只保留核心工具
-    "get_risk_metrics_data": {
-        "quant_tools": get_risk_metrics_data,
-    },
-    "get_volatility_data": {
-        "quant_tools": get_volatility_data,
-    },
-    "simple_forex_data": {
-        "quant_tools": simple_forex_data,
-    },
-    "calculate_risk_metrics": {
-        "quant_tools": lambda ticker, curr_date, lookback_days=252, **kwargs: 
-            get_risk_metrics_data(ticker, lookback_days, "1day"),
-        "local": lambda ticker, curr_date, lookback_days=252, **kwargs: 
-            get_quantitative_analysis_local(ticker, curr_date, lookback_days, **kwargs)
     },
     
     # news_data
@@ -143,10 +157,40 @@ VENDOR_METHODS = {
     "get_macro_dashboard": {
         "local": get_macro_dashboard_local,
     },
-    # "get_central_bank_calendar": {  # ❌ 已删除，需要移除
-    #     "local": get_central_bank_calendar_local,
-    # }
 }
+
+def _initialize_vendor_methods():
+    """初始化VENDOR_METHODS，包含延迟导入的量化工具"""
+    global VENDOR_METHODS
+    
+    # 延迟导入量化工具
+    _import_quant_data_tools()
+    
+    # 添加量化分析工具到VENDOR_METHODS
+    if _quant_tools:
+        VENDOR_METHODS.update({
+            # quantitative_analysis - 只保留核心工具
+            "get_risk_metrics_data": {
+                "quant_tools": _quant_tools.get("get_risk_metrics_data"),
+            },
+            "get_volatility_data": {
+                "quant_tools": _quant_tools.get("get_volatility_data"),
+            },
+            "simple_forex_data": {
+                "quant_tools": _quant_tools.get("simple_forex_data"),
+            },
+            "calculate_risk_metrics": {
+                "quant_tools": lambda ticker, curr_date, lookback_days=252, **kwargs: 
+                    _quant_tools.get("get_risk_metrics_data")(ticker, lookback_days, "1day"),
+                "local": lambda ticker, curr_date, lookback_days=252, **kwargs: 
+                    get_quantitative_analysis_local(ticker, curr_date, lookback_days, **kwargs)
+            },
+        })
+
+# 初始化VENDOR_METHODS
+_initialize_vendor_methods()
+
+# 其余函数保持不变...
 
 def get_category_for_method(method: str) -> str:
     """获取方法所属的类别"""

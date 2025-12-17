@@ -3,7 +3,6 @@ from typing import Annotated, List, Optional
 import pandas as pd
 import numpy as np
 import logging
-from tradingagents.dataflows.interface import route_to_vendor
 
 logger = logging.getLogger(__name__)
 

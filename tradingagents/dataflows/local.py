@@ -6,8 +6,27 @@ import logging
 from typing import Dict, Any, Optional
 import pandas as pd
 import os
-import json  # 添加缺失的json导入
-from ..config import DATA_DIR
+import json
+
+# 修复导入问题
+try:
+    # 尝试相对导入（同一目录下的config.py）
+    from .config import DATA_DIR
+    print(f"✓ 从 .config 导入 DATA_DIR: {DATA_DIR}")
+except ImportError as e1:
+    try:
+        # 尝试绝对导入
+        from tradingagents.dataflows.config import DATA_DIR
+        print(f"✓ 从 tradingagents.dataflows.config 导入 DATA_DIR: {DATA_DIR}")
+    except ImportError as e2:
+        # 如果都不存在，定义默认值
+        import os
+        BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        DATA_DIR = os.path.join(BASE_DIR, "data")
+        os.makedirs(DATA_DIR, exist_ok=True)
+        print(f"⚠️ 使用默认 DATA_DIR: {DATA_DIR}")
+        print(f"  导入错误1: {e1}")
+        print(f"  导入错误2: {e2}")
 
 logger = logging.getLogger(__name__)
 
@@ -101,10 +120,6 @@ def get_macro_dashboard_local(
     except Exception as e:
         logger.error(f"Error generating macroeconomic dashboard: {e}")
         return f"Error generating macroeconomic dashboard: {str(e)}"
-
-# ❌ 已删除的函数：get_central_bank_calendar_local
-# 这个函数已经被移除，因为我们已经从macro_data_tools.py中删除了get_central_bank_calendar
-# 如果你需要经济日历功能，请考虑使用其他数据源或API
 
 def get_quantitative_analysis_local(
     ticker: str,

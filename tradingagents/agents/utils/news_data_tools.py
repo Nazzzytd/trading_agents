@@ -2,7 +2,6 @@
 
 from langchain_core.tools import tool
 from typing import Annotated, Optional, Dict, Any
-from tradingagents.dataflows.interface import route_to_vendor
 from datetime import datetime, timedelta
 
 
@@ -175,7 +174,6 @@ def get_news_direct(
     
     # 直接调用底层函数
     try:
-        from tradingagents.dataflows.interface import route_to_vendor
         result = route_to_vendor("get_news", **optimized_params)
         
         # 返回结构化数据
