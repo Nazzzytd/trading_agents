@@ -64,7 +64,6 @@ __all__ = [
     "create_bull_researcher",
     "create_research_manager",
     "create_technical_analyst",
-    # "create_market_analyst",  # ❌ 已删除
     "create_macro_analyst",    # ✅ 添加宏观经济分析师
     "create_neutral_debator",
     "create_news_analyst",
