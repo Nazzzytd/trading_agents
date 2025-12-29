@@ -1,0 +1,21 @@
+{
+  "timestamp": "2025-12-29 16:32:27",
+  "context": "graph_decision_cycle_1",
+  "weighted_decision": 0.355,
+  "weights": {
+    "Market Analyst": 0.16666666666666666,
+    "News Analyst": 0.16666666666666666,
+    "Technical Analyst": 0.16666666666666666,
+    "Bull Researcher": 0.16666666666666666,
+    "Bear Researcher": 0.16666666666666666,
+    "Trader": 0.16666666666666666
+  },
+  "raw_predictions": {
+    "Market Analyst": 0.65,
+    "News Analyst": -0.15,
+    "Technical Analyst": 0.78,
+    "Bull Researcher": 0.92,
+    "Bear Researcher": -0.42,
+    "Trader": 0.35
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "adaptive_system": {
+    "enabled": true,
+    "integration_mode": "external_processor",
+    "output_files": {
+      "predictions": "graph_predictions.json",
+      "results": "adaptive_decision.json",
+      "updates": "market_updates.json"
+    }
+  },
+  "agents": [
+    [
+      "Market Analyst",
+      "analyst"
+    ],
+    [
+      "News Analyst",
+      "analyst"
+    ],
+    [
+      "Technical Analyst",
+      "analyst"
+    ],
+    [
+      "Bull Researcher",
+      "researcher"
+    ],
+    [
+      "Bear Researcher",
+      "researcher"
+    ],
+    [
+      "Trader",
+      "trader"
+    ]
+  ]
+}
