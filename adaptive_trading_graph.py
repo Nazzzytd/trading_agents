@@ -8,7 +8,7 @@ import os
 import json
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 from datetime import datetime
 
 # 尝试导入原Graph
@@ -68,6 +68,14 @@ class AdaptiveGraphEnhancer:
         - investment_debate_state
         - risk_debate_state
         """
+        # 输入验证
+        if not isinstance(final_state, dict):
+            print(f"⚠️ final_state 必须是字典类型，但收到 {type(final_state)}")
+            return final_state
+        
+        if not company_name or not trade_date:
+            print("⚠️ company_name 和 trade_date 不能为空")
+            return final_state
         
         # 1. 提取预测信号
         predictions = self._extract_from_final_state(final_state)
@@ -106,6 +114,10 @@ class AdaptiveGraphEnhancer:
             print(f"   🔢 原始数值: {enhanced_data['original_decision_numeric']:.3f}")
         
         # 5. 添加到final_state（不破坏原结构）
+        # 检查是否已存在增强数据
+        if "_adaptive_enhancement" in final_state:
+            print("⚠️  已存在增强数据，将替换")
+        
         final_state["_adaptive_enhancement"] = enhanced_data
         
         # 6. 保存到文件
@@ -124,11 +136,24 @@ class AdaptiveGraphEnhancer:
             "news_report",
             "technical_report",
             "quantitative_report",
+            "research_manager_report",  # 添加遗漏的字段
+            "portfolio_manager_report",  # 添加遗漏的字段
         ]
         
         for field in report_fields:
             if field in state and state[field]:
-                agent_name = field.replace("_report", "_analyst")
+                agent_name = field.replace("_report", "")
+                if agent_name == "market":
+                    agent_name = "market_analyst"
+                elif agent_name == "sentiment":
+                    agent_name = "sentiment_analyst"
+                elif agent_name == "news":
+                    agent_name = "news_analyst"
+                elif agent_name == "technical":
+                    agent_name = "technical_analyst"
+                elif agent_name == "quantitative":
+                    agent_name = "quantitative_analyst"
+                
                 signal = self._parse_report_signal(state[field])
                 predictions[agent_name] = signal
         
@@ -144,41 +169,55 @@ class AdaptiveGraphEnhancer:
             risk_state = state["risk_debate_state"]
             # 可能包含多个风险分析师的观点
         
+        # 3. 检查是否有直接可用的数值信号
+        if "signals" in state and isinstance(state["signals"], dict):
+            for name, value in state["signals"].items():
+                if isinstance(value, (int, float)):
+                    predictions[name] = float(value)
+        
         return predictions
     
     def _parse_report_signal(self, content: str) -> float:
-        """解析报告内容为数值信号"""
-        if not content:
+        """改进的信号解析"""
+        if not content or not isinstance(content, str):
             return 0.0
         
         content_lower = content.lower()
         
-        # 权重关键词
-        strong_buy = ["strong buy", "definitely buy", "high conviction buy"]
-        buy = ["buy", "long", "bullish", "positive", "recommend buying"]
-        neutral = ["neutral", "hold", "wait", "sideways"]
-        sell = ["sell", "short", "bearish", "negative", "recommend selling"]
-        strong_sell = ["strong sell", "definitely sell", "high conviction sell"]
+        # 使用正则表达式提取数值信号
+        import re
         
-        # 检查强度
-        for phrase in strong_buy:
-            if phrase in content_lower:
-                return 0.9
-        for phrase in strong_sell:
-            if phrase in content_lower:
-                return -0.9
+        # 尝试提取明确的数值信号 (如 "signal: 0.75")
+        num_patterns = [
+            r'signal[:=]\s*(-?\d+\.?\d*)',
+            r'confidence[:=]\s*(\d+\.?\d*)',
+            r'score[:=]\s*(-?\d+\.?\d*)',
+        ]
         
-        # 检查普通信号
-        buy_count = sum(1 for word in buy if word in content_lower)
-        sell_count = sum(1 for word in sell if word in content_lower)
-        neutral_count = sum(1 for word in neutral if word in content_lower)
+        for pattern in num_patterns:
+            matches = re.findall(pattern, content_lower)
+            if matches:
+                try:
+                    value = float(matches[0])
+                    return max(-1.0, min(1.0, value))  # 限制在[-1, 1]
+                except ValueError:
+                    pass
         
-        if buy_count > sell_count and buy_count > neutral_count:
-            return min(0.7, 0.3 + buy_count * 0.1)
-        elif sell_count > buy_count and sell_count > neutral_count:
-            return max(-0.7, -0.3 - sell_count * 0.1)
-        elif neutral_count > 0:
-            return 0.0
+        # 使用更精确的关键词匹配
+        signal_map = [
+            (['strong buy', 'definitely buy'], 0.9),
+            (['buy', 'long', 'bullish'], 0.6),
+            (['hold', 'neutral'], 0.0),
+            (['sell', 'short', 'bearish'], -0.6),
+            (['strong sell', 'definitely sell'], -0.9),
+        ]
+        
+        for keywords, signal in signal_map:
+            if any(keyword in content_lower for keyword in keywords):
+                # 检查是否有否定词（如 "not bullish"）
+                if any(f"not {k}" in content_lower for k in keywords):
+                    return -signal * 0.5
+                return signal
         
         return 0.0
     
@@ -219,6 +258,8 @@ class AdaptiveGraphEnhancer:
     
     def _truncate_text(self, text: str, max_len: int = 50) -> str:
         """截断文本"""
+        if not text or not isinstance(text, str):
+            return ""
         if len(text) <= max_len:
             return text
         return text[:max_len] + "..."
@@ -241,10 +282,12 @@ class AdaptiveGraphEnhancer:
             "enhancement": state.get("_adaptive_enhancement", {}),
         }
         
-        with open(filename, 'w') as f:
-            json.dump(enhancement_data, f, indent=2)
-        
-        print(f"   💾 增强结果保存到: {filename}")
+        try:
+            with open(filename, 'w') as f:
+                json.dump(enhancement_data, f, indent=2)
+            print(f"   💾 增强结果保存到: {filename}")
+        except Exception as e:
+            print(f"   ⚠️ 保存失败: {e}")
     
     def update_with_market_result(self, actual_change: float):
         """更新权重"""
@@ -267,11 +310,21 @@ if GRAPH_IMPORT_SUCCESS:
         继承原类，重写 propagate 方法添加自适应功能
         """
         
-        def __init__(self, *args, **kwargs):
-            """初始化，添加自适应增强器"""
-            super().__init__(*args, **kwargs)
+        def __init__(self, selected_analysts=None, debug=False, *args, **kwargs):
+            """
+            初始化，添加自适应增强器
+            
+            Args:
+                selected_analysts: 选择的分析师列表（原Graph参数）
+                debug: 调试模式（原Graph参数）
+                *args, **kwargs: 其他传递给父类的参数
+            """
+            # 提取父类可能需要的参数，其余传给父类
+            super().__init__(selected_analysts=selected_analysts, debug=debug, *args, **kwargs)
             self.adaptive_enhancer = AdaptiveGraphEnhancer()
             print("✅ 自适应TradingAgentsGraph 已初始化")
+            print(f"   模式: {'调试' if debug else '正常'}")
+            print(f"   分析师: {selected_analysts}")
         
         def propagate(self, company_name, trade_date):
             """
@@ -325,20 +378,29 @@ else:
     class AdaptiveTradingAgentsGraph:
         """独立的自适应处理器（当无法导入原Graph时）"""
         
-        def __init__(self):
+        def __init__(self, selected_analysts=None, debug=False, **kwargs):
+            """
+            独立处理器的构造函数
+            
+            Args:
+                selected_analysts: 模拟的选择分析师列表
+                debug: 调试模式
+                **kwargs: 其他参数（用于保持接口兼容）
+            """
+            self.selected_analysts = selected_analysts or []
+            self.debug = debug
             self.adaptive_enhancer = AdaptiveGraphEnhancer()
+            self.original_params = kwargs  # 保存其他参数
+            
             print("⚠️  使用独立自适应处理器（原Graph导入失败）")
+            if debug:
+                print(f"   模拟分析师: {self.selected_analysts}")
         
         def propagate(self, company_name, trade_date, mock_state=None):
             """模拟 propagate 方法"""
             if mock_state is None:
                 # 创建模拟状态
-                mock_state = {
-                    "company_of_interest": company_name,
-                    "trade_date": trade_date,
-                    "market_report": "Simulated market analysis",
-                    "final_trade_decision": "Buy with 1% position",
-                }
+                mock_state = self._create_mock_state(company_name, trade_date)
             
             enhanced_state = self.adaptive_enhancer.enhance_final_state(
                 mock_state, company_name, trade_date
@@ -350,6 +412,21 @@ else:
             )
             
             return enhanced_state, processed_signal
+        
+        def _create_mock_state(self, company_name: str, trade_date: str) -> Dict[str, Any]:
+            """创建模拟状态"""
+            return {
+                "company_of_interest": company_name,
+                "trade_date": trade_date,
+                "market_report": f"Market analysis for {company_name} on {trade_date}. Bullish momentum observed.",
+                "news_report": f"News analysis suggests positive sentiment for {company_name}.",
+                "technical_report": "Buy signal confirmed. RSI 45, MACD bullish.",
+                "final_trade_decision": f"Buy {company_name} with 2% position. Target: 1.1000, Stop: 1.0850.",
+            }
+        
+        def update_adaptive_weights(self, actual_change: float):
+            """更新自适应权重"""
+            self.adaptive_enhancer.update_with_market_result(actual_change)
 
 
 # ==================== 使用示例 ====================
@@ -361,10 +438,13 @@ def demonstrate_usage():
     print("=" * 50)
     
     try:
-        # 尝试使用增强版Graph
+        # 尝试使用增强版Graph（正确传递参数）
         graph = AdaptiveTradingAgentsGraph(
             selected_analysts=["market", "social", "news", "technical"],
-            debug=True
+            debug=True,
+            # 如果有其他原Graph参数，可以继续添加
+            # model_name="gpt-4",
+            # max_tokens=1000,
         )
         
         print("\n🧪 模拟运行Graph...")
@@ -391,62 +471,90 @@ def demonstrate_usage():
         print(f"⚠️  Graph运行失败: {e}")
         print("\n使用独立模式演示...")
         
-        # 使用独立处理器
-        processor = AdaptiveGraphEnhancer()
-        
-        # 模拟状态
-        mock_state = {
-            "company_of_interest": "EURUSD",
-            "trade_date": "2024-01-15",
-            "market_report": "EUR shows bullish momentum with support at 1.0850.",
-            "news_report": "ECB maintains dovish stance, supporting risk appetite.",
-            "technical_report": "Buy signal confirmed. RSI 45, MACD bullish.",
-            "final_trade_decision": "Buy EURUSD with 2% position. Target: 1.1000, Stop: 1.0850.",
-        }
-        
-        enhanced = processor.enhance_final_state(
-            mock_state, "EURUSD", "2024-01-15"
+        # 使用独立处理器（参数与增强版保持一致）
+        processor = AdaptiveTradingAgentsGraph(
+            selected_analysts=["market", "technical"],
+            debug=True
         )
         
-        processor.update_with_market_result(0.012)
+        # 模拟 propagate 调用
+        final_state, signal = processor.propagate(
+            company_name="EURUSD",
+            trade_date="2024-01-15"
+        )
+        
+        print(f"\n✅ 独立处理器运行完成:")
+        print(f"   最终信号: {signal:.3f}")
+        
+        if "_adaptive_enhancement" in final_state:
+            adaptive_data = final_state["_adaptive_enhancement"]
+            print(f"   自适应决策: {adaptive_data['adaptive_decision']:.3f}")
+        
+        # 模拟市场更新
+        processor.update_adaptive_weights(0.012)
 
 
-def get_integration_instructions():
+def get_integration_instructions(import_success=True): # 建议通过参数传递状态
     """获取集成说明"""
     
     print("\n" + "="*60)
     print("🎯 集成到您的系统")
     print("="*60)
     
-    if GRAPH_IMPORT_SUCCESS:
+    # 使用传入的参数判断
+    if import_success:
         print("""
 ✅ 检测到原TradingAgentsGraph可导入
 
 集成步骤：
-
 1. 将本文件保存为 adaptive_trading_graph.py
-
 2. 在您现有的代码中替换：
+
    原代码：
-   ```python
    from tradingagents.graph.trading_graph import TradingAgentsGraph
+   graph = TradingAgentsGraph(selected_analysts=..., debug=...)
    
-   graph = TradingAgentsGraph(...)
-
-   from adaptive_trading_graph import AdaptiveTradingAgentsGraph
-
-   graph = AdaptiveTradingAgentsGraph(...)  # 参数与原Graph相同
-
    修改为：
    from adaptive_trading_graph import AdaptiveTradingAgentsGraph
-   graph = AdaptiveTradingAgentsGraph(...)  # 参数与原Graph相同
+   graph = AdaptiveTradingAgentsGraph(selected_analysts=..., debug=...)
 
-   使用方法与原Graph完全相同：
+使用方法与原Graph完全相同：
    # 运行Graph
    final_state, signal = graph.propagate("EURUSD", "2024-01-15")
 
    # 交易后更新权重
-   actual_change = get_actual_price_change()  # 您的函数
+   actual_change = get_actual_price_change()  # 您的逻辑
    graph.update_adaptive_weights(actual_change)
-   增强的数据在 final_state["_adaptive_enhancement"] 中
+
+增强的数据在 final_state["_adaptive_enhancement"] 中
 """)
+    else:
+        print("""
+⚠️ 原TradingAgentsGraph不可用，将使用独立自适应处理器。
+
+使用方法：
+1. 将本文件保存为 adaptive_trading_graph.py
+2. 在您的代码中使用：
+   from adaptive_trading_graph import AdaptiveTradingAgentsGraph
+
+   graph = AdaptiveTradingAgentsGraph(selected_analysts=["market", "technical"])
+   final_state, signal = graph.propagate("EURUSD", "2024-01-15")
+   graph.update_adaptive_weights(0.015)
+""")
+
+    print("📝 注意事项:")
+    print(" • 增强数据保存在 final_state['_adaptive_enhancement']")
+    print(" • 自适应权重自动学习和更新")
+    print(" • 结果保存在 adaptive_enhancements/ 目录")
+
+# 正确的入口检查
+if __name__ == "__main__":
+    # 假设 GRAPH_IMPORT_SUCCESS 在文件顶部定义
+    try:
+        from tradingagents.graph.trading_graph import TradingAgentsGraph
+        GRAPH_IMPORT_SUCCESS = True
+    except ImportError:
+        GRAPH_IMPORT_SUCCESS = False
+
+    # demonstrate_usage() # 确保此函数已定义
+    get_integration_instructions(GRAPH_IMPORT_SUCCESS)
