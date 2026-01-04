@@ -116,26 +116,50 @@ class LayerManager:
         
         return adjusted_weight
     
+   # tradingagents/adaptive_system/layer_manager.py
+
+    
     def adjust_weight(self, 
                      agent_name: str,
-                     actual_value: float,
                      current_error: float,
-                     layer_name: str) -> float:
-        """调整智能体权重（简化接口）"""
+                     layer_name: str,
+                     market_volatility: float = 1.0) -> float:
+        """
+        调整智能体权重（修复版）
+        
+        Args:
+            agent_name: 智能体名称（用于日志记录）
+            current_error: 当前误差值
+            layer_name: 智能体所属层级
+            market_volatility: 市场波动率因子，默认1.0
+        
+        Returns:
+            调整后的权重
+        """
+        # 获取层级配置
         config = self.get_layer_config(layer_name)
         
         # 基于误差计算新权重
         if current_error <= 0:
-            current_error = 0.001
+            current_error = 0.001  # 防止除零
         
-        new_weight = 1.0 / (current_error + 0.01)  # 基础计算
+        # 基础权重计算：误差越小权重越高
+        base_weight = 1.0 / (current_error + 0.01)
         
-        # 应用层级调整
+        # 应用层级特定的调整
         new_weight = self.calculate_layer_adjusted_weight(
-            new_weight, current_error, layer_name
+            base_weight, 
+            current_error, 
+            layer_name,
+            market_volatility
         )
         
+        # 记录调整日志（可选）
+        # print(f"调整权重 - 智能体: {agent_name}, 层级: {layer_name}, "
+        #       f"误差: {current_error:.4f}, 新权重: {new_weight:.4f}")
+        
         return new_weight
+    
     
     def get_suggested_weights(self, agents_info: Dict[str, Dict]) -> Dict[str, float]:
         """为多个智能体建议权重"""

@@ -79,52 +79,6 @@ class AdaptiveWeightManager:
             logger.info(f"注册智能体: {name} ({agent_type})")
         return self
     
-    def record_prediction(self, agent_name: str, prediction: float) -> bool:
-        """记录智能体预测"""
-        if agent_name in self.agents:
-            self.agents[agent_name].add_prediction(prediction)
-            return True
-        else:
-            logger.warning(f"智能体未注册: {agent_name}")
-            return False
-    
-    def record_actual(self, agent_name: str, actual_value: float) -> bool:
-        """记录实际值并自动计算误差"""
-        if agent_name in self.agents:
-            self.agents[agent_name].add_actual(actual_value)
-            return True
-        else:
-            logger.warning(f"智能体未注册: {agent_name}")
-            return False
-    
-    def calculate_weight(self, agent_name: str) -> float:
-        """计算智能体新权重"""
-        if agent_name not in self.agents:
-            return self.config.initial_weight
-        
-        agent = self.agents[agent_name]
-        avg_error = agent.get_average_error(self.config.error_window_size)
-        
-        # 防止除零
-        if avg_error <= 0:
-            avg_error = 0.001
-        
-        # 基础权重计算：误差越小，权重越高
-        base_weight = 1.0 / avg_error
-        
-        # 应用学习率
-        new_weight = agent.current_weight * (1 - self.config.learning_rate) + \
-                    base_weight * self.config.learning_rate
-        
-        # 应用权重边界
-        new_weight = max(self.config.min_weight, 
-                        min(new_weight, self.config.max_weight))
-        
-        # 应用权重衰减
-        new_weight *= self.config.weight_decay
-        
-        return new_weight
-    
     def update_weight(self, agent_name: str, new_weight: Optional[float] = None):
         """更新智能体权重"""
         if agent_name not in self.agents:
@@ -157,9 +111,6 @@ class AdaptiveWeightManager:
         for agent_name in self.agents:
             self.update_weight(agent_name)
     
-    def get_weight(self, agent_name: str) -> float:
-        """获取智能体当前权重"""
-        return self.agents.get(agent_name, AgentRecord("", "")).current_weight
     
     def get_all_weights(self) -> Dict[str, float]:
         """获取所有智能体权重"""
@@ -176,12 +127,8 @@ class AdaptiveWeightManager:
             # 如果总和为0或禁用归一化，返回等权重
             n = len(weights)
             return {k: 1.0/n for k in weights.keys()}
-    
-    def get_agent_error(self, agent_name: str) -> float:
-        """获取智能体误差"""
-        if agent_name in self.agents:
-            return self.agents[agent_name].get_average_error()
-        return 1.0  # 默认误差
+
+        
     
     def get_agent_layer(self, agent_name: str) -> str:
         """获取智能体所属层级"""
@@ -203,3 +150,144 @@ class AdaptiveWeightManager:
                 current_weight=self.config.initial_weight
             )
             logger.info(f"重置智能体: {agent_name}")
+
+
+    
+    def get_weight(self, agent_name: str) -> float:
+        """
+        获取智能体当前权重
+        
+        Args:
+            agent_name: 智能体名称
+            
+        Returns:
+            智能体的当前权重
+            
+        Raises:
+            KeyError: 如果智能体未注册
+            
+        Example:
+            >>> weight = manager.get_weight("tech_analyst")
+            >>> print(f"权重: {weight}")
+        """
+        if agent_name not in self.agents:
+            error_msg = f"智能体 '{agent_name}' 未注册。已注册的智能体: {list(self.agents.keys())}"
+            logger.error(error_msg)
+            raise KeyError(error_msg)
+        
+        weight = self.agents[agent_name].current_weight
+        logger.debug(f"获取智能体 '{agent_name}' 权重: {weight:.4f}")
+        return weight
+    
+    def get_agent_error(self, agent_name: str, default: float = 1.0) -> float:
+        """
+        获取智能体误差，带默认值和错误处理
+        
+        Args:
+            agent_name: 智能体名称
+            default: 默认误差值，当智能体不存在时返回
+            
+        Returns:
+            智能体的平均误差
+        """
+        if agent_name not in self.agents:
+            logger.warning(f"智能体 '{agent_name}' 未注册，返回默认误差 {default}")
+            return default
+        
+        agent = self.agents[agent_name]
+        
+        # 检查是否有误差数据
+        if not agent.errors:
+            logger.debug(f"智能体 '{agent_name}' 暂无误差数据，返回默认误差 {default}")
+            return default
+        
+        error = agent.get_average_error()
+        logger.debug(f"智能体 '{agent_name}' 平均误差: {error:.4f}")
+        return error
+    
+    def record_prediction(self, agent_name: str, prediction: float) -> bool:
+        """记录智能体预测，增强错误处理"""
+        try:
+            if agent_name not in self.agents:
+                logger.error(f"记录预测失败: 智能体 '{agent_name}' 未注册")
+                return False
+            
+            # 验证预测值
+            if not isinstance(prediction, (int, float)):
+                logger.error(f"预测值必须是数字，收到: {type(prediction)}")
+                return False
+            
+            self.agents[agent_name].add_prediction(prediction)
+            logger.debug(f"记录智能体 '{agent_name}' 预测: {prediction:.4f}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"记录预测时发生错误: {str(e)}")
+            return False
+    
+    def record_actual(self, agent_name: str, actual_value: float) -> bool:
+        """记录实际值并自动计算误差，增强错误处理"""
+        try:
+            if agent_name not in self.agents:
+                logger.error(f"记录实际值失败: 智能体 '{agent_name}' 未注册")
+                return False
+            
+            # 验证实际值
+            if not isinstance(actual_value, (int, float)):
+                logger.error(f"实际值必须是数字，收到: {type(actual_value)}")
+                return False
+            
+            # 检查是否有对应的预测
+            agent = self.agents[agent_name]
+            if not agent.predictions:
+                logger.warning(f"智能体 '{agent_name}' 没有预测记录，无法计算误差")
+            
+            agent.add_actual(actual_value)
+            logger.debug(f"记录智能体 '{agent_name}' 实际值: {actual_value:.4f}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"记录实际值时发生错误: {str(e)}")
+            return False
+    
+    def calculate_weight(self, agent_name: str) -> float:
+        """计算智能体新权重，增强错误处理"""
+        try:
+            if agent_name not in self.agents:
+                logger.warning(f"智能体 '{agent_name}' 未注册，返回默认权重")
+                return self.config.initial_weight
+            
+            agent = self.agents[agent_name]
+            avg_error = agent.get_average_error(self.config.error_window_size)
+            
+            # 防止除零和无效误差
+            if avg_error <= 0 or np.isnan(avg_error) or np.isinf(avg_error):
+                logger.warning(f"智能体 '{agent_name}' 误差值无效: {avg_error}，使用默认权重")
+                return self.config.initial_weight
+            
+            # 基础权重计算：误差越小，权重越高
+            base_weight = 1.0 / avg_error
+            
+            # 应用学习率
+            new_weight = agent.current_weight * (1 - self.config.learning_rate) + \
+                        base_weight * self.config.learning_rate
+            
+            # 验证权重值
+            if np.isnan(new_weight) or np.isinf(new_weight):
+                logger.error(f"计算出的权重无效: {new_weight}，使用当前权重")
+                return agent.current_weight
+            
+            # 应用权重边界
+            new_weight = max(self.config.min_weight, 
+                           min(new_weight, self.config.max_weight))
+            
+            # 应用权重衰减
+            new_weight *= self.config.weight_decay
+            
+            logger.debug(f"智能体 '{agent_name}' 新权重计算: {agent.current_weight:.4f} -> {new_weight:.4f}")
+            return new_weight
+            
+        except Exception as e:
+            logger.error(f"计算权重时发生错误: {str(e)}")
+            return self.config.initial_weight if agent_name not in self.agents else \
+                   self.agents.get(agent_name, AgentRecord("", "")).current_weight
