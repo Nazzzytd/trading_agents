@@ -1,3 +1,4 @@
+# /Users/fr./Downloads/TradingAgents-main/tradingagents/adaptive_system/__init__.py
 """
 自适应权重误差补偿系统
 为外汇交易多智能体系统提供动态权重调整功能
@@ -14,6 +15,7 @@ from .optimization import WeightOptimizer
 # 版本信息
 __version__ = "1.0.0"
 __author__ = "TradingAgents Adaptive System"
+
 
 # 简化的主接口
 class AdaptiveSystem:
@@ -34,7 +36,6 @@ class AdaptiveSystem:
         """记录智能体预测"""
         return self.weight_manager.record_prediction(agent_name, prediction)
     
-
     def update_with_result(self, 
                           agent_name: str, 
                           actual_value: float,
@@ -82,19 +83,18 @@ class AdaptiveSystem:
         # 更新权重管理器中的权重
         self.weight_manager.update_weight(agent_name, adjusted_weight)
         
-        # 记录更新日志
-        # print(f"权重更新 - 智能体: {agent_name}, 误差: {current_error:.4f}, "
-        #       f"新权重: {adjusted_weight:.4f}")
-        
         return adjusted_weight
     
-    # ... 其他方法保持不变 ...
     def get_weighted_decision(self, predictions: Dict[str, float]) -> Dict:
         """获取加权决策"""
         weights = {}
         for agent, pred in predictions.items():
-            weight = self.weight_manager.get_weight(agent)
-            weights[agent] = weight
+            try:
+                weight = self.weight_manager.get_weight(agent)
+                weights[agent] = weight
+            except KeyError:
+                # 如果智能体未注册，使用默认权重
+                weights[agent] = self.config.initial_weight
         
         # 归一化权重
         total = sum(weights.values())
@@ -116,6 +116,7 @@ class AdaptiveSystem:
     def visualize_weights(self, save_path: str = "weights_plot.html"):
         """可视化权重"""
         return self.visualizer.plot_weights(self.weight_manager.get_all_records())
+
 
 __all__ = [
     "AdaptiveSystem",
