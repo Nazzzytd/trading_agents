@@ -3,7 +3,6 @@ Graph系统集成模块
 将自适应权重系统集成到现有Graph流程中
 """
 from typing import Dict, List, Any, Optional
-from datetime import datetime
 import networkx as nx
 
 
@@ -94,12 +93,13 @@ class GraphIntegrator:
         
         return weight_node_name
     
+
     def create_weight_calculator(self, weight_manager, layer_manager):
         """创建权重计算函数 - 修复版"""
         
         def calculate_weights(node_data: Dict[str, Any]) -> Dict[str, Any]:
             """
-            权重计算函数 - 修复版:正确处理空预测数据
+            权重计算函数 - 修复版：正确处理空预测数据
             """
             # 从输入数据中提取预测
             predictions = node_data.get('predictions', {})
@@ -111,7 +111,6 @@ class GraphIntegrator:
                 # 返回原始数据但标记没有权重计算
                 return {
                     **node_data,
-                    "predictions": {},  # 添加空预测字典
                     "has_weights": False,
                     "weighted_decision": None,
                     "agent_weights": {},
