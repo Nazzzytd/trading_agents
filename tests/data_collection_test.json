@@ -1,0 +1,24 @@
+{
+  "news": {
+    "success": true,
+    "type": "str"
+  },
+  "config": {
+    "success": true,
+    "keys": [
+      "project_dir",
+      "results_dir",
+      "data_dir",
+      "data_cache_dir",
+      "llm_provider",
+      "deep_think_llm",
+      "quick_think_llm",
+      "backend_url",
+      "max_debate_rounds",
+      "max_risk_discuss_rounds",
+      "max_recur_limit",
+      "data_vendors",
+      "tool_vendors"
+    ]
+  }
+}

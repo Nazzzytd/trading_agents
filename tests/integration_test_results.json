@@ -1,0 +1,21 @@
+{
+  "timestamp": "2026-01-19T19:24:08.440163",
+  "project_root": "/Users/fr./Downloads/TradingAgents-main",
+  "data_sources": {
+    "technical": "call_failed",
+    "macro_fred": "call_failed",
+    "macro_ecb": "call_failed",
+    "quant_risk": "call_failed",
+    "vendor_routing": "call_failed",
+    "analyst_macro_analyst": "available",
+    "analyst_news_analyst": "available",
+    "analyst_technical_analyst": "available",
+    "analyst_quantitative_analyst": "import_failed",
+    "adaptive_system": "available"
+  },
+  "python_version": "3.13.9 | packaged by Anaconda, Inc. | (main, Oct 21 2025, 19:11:29) [Clang 20.1.8 ]",
+  "system_info": {
+    "platform": "darwin",
+    "executable": "/Users/fr./miniconda3/envs/tradingagents/bin/python"
+  }
+}
