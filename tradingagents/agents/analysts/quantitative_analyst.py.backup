@@ -3,7 +3,7 @@
 量化分析师 - 使用LLM分析量化数据
 专门分析风险、绩效、相关性等量化指标
 """
-from langchain.tools import Tool
+from langchain.agents import Tool
 from langchain.prompts import PromptTemplate
 from typing import Dict, List, Any, Optional
 import json

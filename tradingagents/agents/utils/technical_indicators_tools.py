@@ -3,8 +3,10 @@ from typing import Annotated, List, Optional
 import pandas as pd
 import numpy as np
 import logging
+from tradingagents.dataflows.interface import route_to_vendor
 
 logger = logging.getLogger(__name__)
+
 
 # ==================== 核心技术指标计算函数 ====================
 
@@ -121,28 +123,195 @@ def get_technical_data(symbol: str, curr_date: str, look_back_days: int = 60) ->
     返回原始技术指标数据供 technical_analyst 分析使用
     """
     try:
+        # ============ 修复：确保正确导入 route_to_vendor ============
+        import sys
+        
+        # 先尝试从全局命名空间获取
+        route_func = None
+        current_module = sys.modules[__name__]
+        
+        if hasattr(current_module, 'route_to_vendor'):
+            route_func = getattr(current_module, 'route_to_vendor')
+        
+        if route_func is None:
+            try:
+                from tradingagents.dataflows.interface import route_to_vendor
+                route_func = route_to_vendor
+                setattr(current_module, 'route_to_vendor', route_func)
+            except ImportError as e:
+                logger.error(f"无法导入 route_to_vendor: {e}")
+                return {"success": False, "error": f"数据路由函数不可用: {e}"}
+        # ===================================================
+        
         # 获取价格数据
-        price_data = route_to_vendor("get_forex_data", symbol, curr_date, look_back_days)
+        from datetime import datetime, timedelta
         
-        if not price_data or not isinstance(price_data, dict) or not price_data.get("success"):
-            return {"success": False, "error": "无法获取价格数据"}
+        current_date_obj = datetime.strptime(curr_date, "%Y-%m-%d")
+        start_date = (current_date_obj - timedelta(days=look_back_days)).strftime("%Y-%m-%d")
+        end_date = curr_date
         
-        # 提取数据点
-        data_points = price_data.get("data", [])
+        logger.info(f"获取 {symbol} 的价格数据: {start_date} 到 {end_date}")
+        
+        # 使用正确的函数名调用
+        price_data = route_func("get_forex_data", symbol, start_date, end_date)
+        
+        # 调试日志 - 详细检查返回数据
+        logger.info(f"获取到价格数据类型: {type(price_data)}")
+        
+        if isinstance(price_data, str):
+            logger.info(f"返回的是字符串，前200字符: {price_data[:200]}")
+            
+            # 尝试解析字符串
+            try:
+                import json
+                # 尝试解析为JSON
+                price_data = json.loads(price_data)
+                logger.info(f"成功解析字符串为: {type(price_data)}")
+            except json.JSONDecodeError:
+                # 如果不是JSON，检查是否是其他格式
+                logger.warning(f"无法解析为JSON，可能是文本格式")
+                
+                # 检查是否包含数据表
+                if "DataFrame" in price_data or "open" in price_data.lower():
+                    # 可能是字符串化的数据框
+                    return {
+                        "success": False, 
+                        "error": "返回的是文本格式数据框，需要解析",
+                        "raw_data_preview": price_data[:500]
+                    }
+                else:
+                    return {
+                        "success": False, 
+                        "error": f"无法识别的返回格式: {price_data[:100]}...",
+                        "raw_type": type(price_data).__name__
+                    }
+        
+        # 处理不同类型的结果
+        if price_data is None:
+            return {"success": False, "error": "返回数据为空"}
+            
+        # 如果是字典
+        if isinstance(price_data, dict):
+            logger.info(f"字典数据键: {list(price_data.keys())}")
+            
+            # 检查是否包含错误
+            if not price_data.get("success", True):
+                error_msg = price_data.get("error", "未知错误")
+                logger.error(f"数据获取失败: {error_msg}")
+                return {"success": False, "error": error_msg}
+            
+            # 检查数据格式
+            if "data" not in price_data:
+                logger.warning(f"字典中没有 'data' 键，全键: {list(price_data.keys())}")
+                
+                # 尝试找到可能的数据键
+                possible_data_keys = ['values', 'prices', 'series', 'items', 'results']
+                data_found = None
+                
+                for key in possible_data_keys:
+                    if key in price_data:
+                        data_found = price_data[key]
+                        logger.info(f"使用替代数据键: {key}")
+                        break
+                
+                if data_found is None:
+                    # 如果没有找到数据，检查是否是直接包含OHLC数据的字典
+                    if all(col in price_data for col in ['open', 'high', 'low', 'close']):
+                        data_points = [price_data]
+                        logger.info(f"直接使用OHLC数据")
+                    else:
+                        return {"success": False, "error": "没有找到数据", "available_keys": list(price_data.keys())}
+                else:
+                    data_points = data_found
+            else:
+                data_points = price_data.get("data", [])
+        
+        # 如果是列表
+        elif isinstance(price_data, list):
+            logger.info(f"直接获取到列表数据，长度: {len(price_data)}")
+            data_points = price_data
+        
+        else:
+            return {"success": False, "error": f"意外数据类型: {type(price_data)}", "data_sample": str(price_data)[:200]}
+        
+        # 检查数据点
         if not data_points:
             return {"success": False, "error": "没有可用的数据点"}
         
+        logger.info(f"数据点类型: {type(data_points)}，长度: {len(data_points)}")
+        
         # 转换为DataFrame
-        df = pd.DataFrame(data_points)
-        if 'datetime' in df.columns:
-            df['datetime'] = pd.to_datetime(df['datetime'])
-            df = df.sort_values('datetime').reset_index(drop=True)
+        try:
+            df = pd.DataFrame(data_points)
+            logger.info(f"DataFrame 创建成功，形状: {df.shape}，列: {list(df.columns)}")
+        except Exception as e:
+            logger.error(f"创建DataFrame失败: {e}")
+            return {"success": False, "error": f"数据格式错误: {e}", "first_data_point": str(data_points[0]) if data_points else "empty"}
+        
+        # 检查并转换日期列
+        date_columns = ['datetime', 'date', 'time', 'timestamp']
+        date_col_found = None
+        
+        for col in date_columns:
+            if col in df.columns:
+                try:
+                    df[col] = pd.to_datetime(df[col])
+                    df = df.sort_values(col).reset_index(drop=True)
+                    date_col_found = col
+                    logger.info(f"使用日期列: {col}")
+                    break
+                except:
+                    continue
         
         # 确保必要的列存在
         required_cols = ['open', 'high', 'low', 'close']
+        
+        # 尝试查找列（不区分大小写）
+        column_mapping = {}
+        for req_col in required_cols:
+            # 检查标准名称
+            if req_col in df.columns:
+                column_mapping[req_col] = req_col
+            else:
+                # 检查可能的变体
+                possible_names = [
+                    req_col.capitalize(),
+                    req_col.upper(),
+                    f"{req_col.capitalize()} Price",
+                    f"{req_col.upper()}_PRICE"
+                ]
+                
+                for possible in possible_names:
+                    if possible in df.columns:
+                        column_mapping[req_col] = possible
+                        logger.info(f"映射 {req_col} -> {possible}")
+                        break
+        
+        # 应用列映射
+        for req_col, actual_col in column_mapping.items():
+            if req_col != actual_col:
+                df[req_col] = df[actual_col]
+        
+        # 检查是否有缺失的列
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
-            return {"success": False, "error": f"缺少必要的列: {missing_cols}"}
+            logger.error(f"缺少必要的列: {missing_cols}")
+            logger.error(f"可用列: {list(df.columns)}")
+            
+            # 尝试打印前几行数据来调试
+            if len(df) > 0:
+                logger.error(f"第一行数据: {df.iloc[0].to_dict()}")
+            
+            return {"success": False, "error": f"缺少必要的列: {missing_cols}", "available_columns": list(df.columns)}
+        
+        # 确保数值类型
+        for col in required_cols:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        # 检查是否有NaN值
+        if df[required_cols].isna().any().any():
+            logger.warning(f"数据包含NaN值，进行填充")
+            df[required_cols] = df[required_cols].ffill().bfill()
         
         # 计算技术指标
         df_with_indicators = calculate_all_indicators(df)
@@ -153,13 +322,17 @@ def get_technical_data(symbol: str, curr_date: str, look_back_days: int = 60) ->
         # 获取最新指标值
         latest_indicators = {}
         indicator_columns = [col for col in df_with_indicators.columns 
-                           if col not in ['datetime', 'open', 'high', 'low', 'close', 'volume']]
+                           if col not in ['datetime', 'date', 'time', 'timestamp', 'open', 'high', 'low', 'close', 'volume']]
         
         for col in indicator_columns:
             if not df_with_indicators[col].empty and not pd.isna(df_with_indicators[col].iloc[-1]):
-                latest_indicators[col] = float(df_with_indicators[col].iloc[-1])
+                try:
+                    latest_indicators[col] = float(df_with_indicators[col].iloc[-1])
+                except:
+                    logger.warning(f"无法转换指标 {col} 为浮点数: {df_with_indicators[col].iloc[-1]}")
         
-        return {
+        # 准备返回结果
+        result = {
             "success": True,
             "symbol": symbol,
             "current_price": float(df_with_indicators['close'].iloc[-1]),
@@ -172,12 +345,20 @@ def get_technical_data(symbol: str, curr_date: str, look_back_days: int = 60) ->
                 "high": float(df_with_indicators['high'].max()),
                 "low": float(df_with_indicators['low'].min()),
                 "open": float(df_with_indicators['open'].iloc[-1])
+            },
+            "debug_info": {
+                "dataframe_shape": df_with_indicators.shape,
+                "columns": list(df_with_indicators.columns),
+                "date_range": f"{df_with_indicators[date_col_found].iloc[0] if date_col_found else 'N/A'} to {df_with_indicators[date_col_found].iloc[-1] if date_col_found else 'N/A'}"
             }
         }
         
+        logger.info(f"技术数据获取成功: {symbol}, 价格: {result['current_price']}, 指标数: {len(latest_indicators)}")
+        return result
+        
     except Exception as e:
-        logger.error(f"Error in get_technical_data for {symbol}: {e}")
-        return {"success": False, "error": str(e)}
+        logger.error(f"Error in get_technical_data for {symbol}: {e}", exc_info=True)
+        return {"success": False, "error": str(e), "traceback": "检查日志获取详细信息"}
 
 # ==================== LangChain 工具函数 ====================
 

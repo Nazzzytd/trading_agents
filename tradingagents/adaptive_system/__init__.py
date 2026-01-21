@@ -1,4 +1,3 @@
-# /Users/fr./Downloads/TradingAgents-main/tradingagents/adaptive_system/__init__.py
 """
 自适应权重误差补偿系统
 为外汇交易多智能体系统提供动态权重调整功能
@@ -6,8 +5,8 @@
 
 from typing import Dict, Any, Optional
 from .config import AdaptiveConfig
-from .weight_manager import AdaptiveWeightManager, AgentRecord
-from .layer_manager import LayerManager, AgentLayer
+from .weight_manager import AdaptiveWeightManager, AgentRecord, WeightManager, LayerManager, Agent
+from .layer_manager import LayerManager as OriginalLayerManager, AgentLayer
 from .graph_integration import GraphIntegrator
 from .visualization import WeightVisualizer
 from .optimization import WeightOptimizer
@@ -24,7 +23,7 @@ class AdaptiveSystem:
     def __init__(self, config=None):
         self.config = config or AdaptiveConfig()
         self.weight_manager = AdaptiveWeightManager(config=self.config)
-        self.layer_manager = LayerManager()
+        self.layer_manager = OriginalLayerManager()
         self.visualizer = WeightVisualizer()
         
     def register_agent(self, name: str, layer: str = "analyst"):
@@ -122,10 +121,13 @@ __all__ = [
     "AdaptiveSystem",
     "AdaptiveConfig",
     "AdaptiveWeightManager",
-    "LayerManager",
+    "WeightManager",  # 添加这个
+    "LayerManager",   # 从 weight_manager.py 导入的
+    "OriginalLayerManager",  # 从 layer_manager.py 导入的
     "GraphIntegrator",
     "WeightVisualizer",
     "WeightOptimizer",
+    "Agent",          # 添加这个
     "AgentRecord",
     "AgentLayer"
 ]

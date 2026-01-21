@@ -291,3 +291,49 @@ class AdaptiveWeightManager:
             logger.error(f"计算权重时发生错误: {str(e)}")
             return self.config.initial_weight if agent_name not in self.agents else \
                    self.agents.get(agent_name, AgentRecord("", "")).current_weight
+# ==================== 兼容性别名和简单实现 ====================
+# 提供兼容性别名以支持现有测试代码
+
+WeightManager = AdaptiveWeightManager
+
+# 简单的兼容性类
+class SimpleLayerManager:
+    """简化的层管理器（兼容性版本）"""
+    def __init__(self, name: str, base_allocation: float = 0.0):
+        self.name = name
+        self.base_allocation = base_allocation
+        self.current_allocation = base_allocation
+        self.agents = []
+
+class SimpleAgent:
+    """简化的智能体类（兼容性版本）"""
+    def __init__(self, name: str, layer: str, base_weight: float = 0.0):
+        self.name = name
+        self.layer = layer
+        self.base_weight = base_weight
+        self.current_weight = base_weight
+        self.performance_history = []
+    
+    def record_performance(self, score: float):
+        """记录性能"""
+        self.performance_history.append(score)
+        # 简化权重更新
+        if len(self.performance_history) > 5:
+            recent_perf = self.performance_history[-5:]
+            avg_perf = sum(recent_perf) / len(recent_perf)
+            self.current_weight = self.base_weight * avg_perf
+
+# 兼容性导出
+LayerManager = SimpleLayerManager
+Agent = SimpleAgent
+
+# 导出列表
+__all__ = [
+    'AdaptiveWeightManager',
+    'WeightManager',
+    'AgentRecord',
+    'LayerManager',
+    'Agent',
+    'SimpleLayerManager',
+    'SimpleAgent'
+]
