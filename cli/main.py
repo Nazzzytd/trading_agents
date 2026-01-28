@@ -5,6 +5,9 @@ from pathlib import Path
 from functools import wraps
 from rich.console import Console
 from dotenv import load_dotenv
+from pathlib import Path
+import json
+from datetime import datetime, timedelta
 
 # Load environment variables from .env file
 load_dotenv()
@@ -31,11 +34,402 @@ from cli.utils import *
 
 console = Console()
 
+try:
+    # 添加回测系统路径
+    sys.path.insert(0, '/Users/fr./Downloads/TradingAgents-main')
+    from tradingagents.backtest.backtest_engine import ForexBacktestEngine, TradeDecision, TradeAction, BacktestResult
+    from tradingagents.backtest.integration import TradingAgentsBacktestIntegration
+    from tradingagents.backtest.agent_interface import AgentDecisionParser
+    BACKTEST_AVAILABLE = True
+except ImportError as e:
+    console.print(f"[yellow]⚠️ 回测系统不可用: {e}[/yellow]")
+    BACKTEST_AVAILABLE = False
+
 app = typer.Typer(
     name="TradingAgents",
     help="TradingAgents CLI: Multi-Agents LLM Financial Trading Framework",
     add_completion=True,  # Enable shell completion
 )
+
+@app.command()
+def backtest(
+    symbol: str = typer.Argument(..., help="交易品种（如 EURUSD, SPY）"),
+    date: str = typer.Argument(..., help="分析日期（YYYY-MM-DD）"),
+    lookback_days: int = typer.Option(30, "--lookback", "-l", help="回看天数"),
+    hold_days: int = typer.Option(10, "--hold", "-h", help="持有天数"),
+    save_result: bool = typer.Option(True, "--save/--no-save", help="保存回测结果"),
+    show_details: bool = typer.Option(False, "--details", "-d", help="显示详细交易记录"),
+):
+    """
+    运行智能体分析并进行回测验证
+    """
+    if not BACKTEST_AVAILABLE:
+        console.print("[red]❌ 回测系统不可用，请检查tradingagents.backtest模块[/red]")
+        return
+    
+    # 1. 先运行分析获取决策
+    console.print(Panel.fit(f"📊 智能体分析 + 回测验证: {symbol} @ {date}", border_style="cyan"))
+    
+    # 获取用户配置（复用现有流程）
+    selections = _get_backtest_selections(symbol, date)
+    
+    # 创建config
+    config = DEFAULT_CONFIG.copy()
+    config["max_debate_rounds"] = 2  # 回测用简化分析
+    config["max_risk_discuss_rounds"] = 2
+    config["quick_think_llm"] = selections["shallow_thinker"]
+    config["deep_think_llm"] = selections["deep_thinker"]
+    config["backend_url"] = selections["backend_url"]
+    config["llm_provider"] = selections["llm_provider"].lower()
+    
+    # 初始化graph
+    graph = TradingAgentsGraph(
+        [analyst.value for analyst in selections["analysts"]], 
+        config=config, 
+        debug=True
+    )
+    
+    # 2. 获取决策
+    console.print("🔍 运行智能体分析...")
+    
+    # 创建初始状态
+    init_agent_state = graph.propagator.create_initial_state(
+        selections["ticker"], selections["analysis_date"]
+    )
+    args = graph.propagator.get_graph_args()
+    
+    # 运行分析
+    trace = []
+    with console.status("[bold green]智能体分析中..."):
+        for chunk in graph.graph.stream(init_agent_state, **args):
+            trace.append(chunk)
+    
+    final_state = trace[-1]
+    
+    # 3. 解析决策
+    console.print("📋 解析智能体决策...")
+    
+    # 使用AgentDecisionParser解析决策
+    parser = AgentDecisionParser()
+    decision = parser.parse_tradingagents_output(final_state)
+    
+    if not decision:
+        console.print("[red]❌ 无法解析智能体决策[/red]")
+        return
+    
+    console.print(f"[green]✅ 决策: {decision.action.value} {decision.symbol} "
+                  f"(置信度: {decision.confidence:.2f})[/green]")
+    console.print(f"[dim]理由: {decision.reasoning[:100]}...[/dim]")
+    
+    # 4. 运行回测
+    console.print("\n⚙️  运行回测验证...")
+    
+    try:
+        # 创建回测引擎
+        backtester = ForexBacktestEngine(
+            initial_capital=10000,
+            spread_pips=2.0,
+            leverage=30
+        )
+        
+        # 运行回测
+        with console.status("[bold green]执行回测..."):
+            result = backtester.run_backtest_on_decision(
+                decision=decision,
+                lookback_days=lookback_days,
+                hold_days=hold_days
+            )
+        
+        # 5. 显示回测结果
+        _display_backtest_results(result, decision, show_details)
+        
+        # 6. 保存结果
+        if save_result:
+            _save_backtest_results(result, decision, selections)
+        
+    except Exception as e:
+        console.print(f"[red]❌ 回测失败: {e}[/red]")
+        import traceback
+        traceback.print_exc()
+
+
+def _get_backtest_selections(symbol, date):
+    """为回测获取用户配置（简化版本）"""
+    from cli.utils import select_analysts, select_research_depth, select_llm_provider
+    from cli.utils import select_shallow_thinking_agent, select_deep_thinking_agent
+    
+    # 使用默认配置
+    return {
+        "ticker": symbol,
+        "analysis_date": date,
+        "analysts": [AnalystType.MARKET, AnalystType.NEWS],  # 简化分析
+        "research_depth": 2,
+        "llm_provider": "openai",
+        "backend_url": None,
+        "shallow_thinker": "claude-3-haiku-20240307",
+        "deep_thinker": "claude-3-sonnet-20240229"
+    }
+
+
+def _display_backtest_results(result: BacktestResult, decision: TradeDecision, show_details: bool):
+    """显示回测结果"""
+    console.print("\n" + "="*60)
+    console.print("[bold green]📊 回测结果汇总[/bold green]")
+    console.print("="*60)
+    
+    # 创建结果表格
+    table = Table(title="绩效指标", box=box.ROUNDED)
+    table.add_column("指标", style="cyan", width=20)
+    table.add_column("数值", style="green", width=20)
+    table.add_column("评价", style="yellow", width=20)
+    
+    # 收益评价
+    return_eval = "优秀" if result.total_return > 10 else \
+                 "良好" if result.total_return > 5 else \
+                 "一般" if result.total_return > 0 else "不佳"
+    
+    # 夏普评价
+    sharpe_eval = "优秀" if result.sharpe_ratio > 1.5 else \
+                 "良好" if result.sharpe_ratio > 1.0 else \
+                 "一般" if result.sharpe_ratio > 0.5 else "不佳"
+    
+    # 回撤评价
+    drawdown_eval = "优秀" if result.max_drawdown > -5 else \
+                   "良好" if result.max_drawdown > -10 else \
+                   "一般" if result.max_drawdown > -15 else "不佳"
+    
+    # 胜率评价
+    winrate_eval = "优秀" if result.win_rate > 70 else \
+                  "良好" if result.win_rate > 60 else \
+                  "一般" if result.win_rate > 50 else "不佳"
+    
+    table.add_row("总收益率", f"{result.total_return:.2f}%", return_eval)
+    table.add_row("夏普比率", f"{result.sharpe_ratio:.3f}", sharpe_eval)
+    table.add_row("最大回撤", f"{result.max_drawdown:.2f}%", drawdown_eval)
+    table.add_row("胜率", f"{result.win_rate:.1f}%", winrate_eval)
+    table.add_row("交易次数", str(result.total_trades), 
+                 "充足" if result.total_trades > 5 else "较少")
+    table.add_row("盈亏比", f"{result.profit_factor:.2f}", 
+                 "优秀" if result.profit_factor > 2.0 else "良好" if result.profit_factor > 1.5 else "一般")
+    
+    console.print(table)
+    
+    # 决策建议
+    console.print("\n[bold]🎯 决策建议:[/bold]")
+    if result.total_return > 10 and result.sharpe_ratio > 1.5 and result.win_rate > 60:
+        console.print("[green]✅ 强烈建议执行 - 高收益低风险[/green]")
+    elif result.total_return > 5 and result.sharpe_ratio > 1.0 and result.max_drawdown > -10:
+        console.print("[green]✅ 建议执行 - 收益风险比良好[/green]")
+    elif result.total_return > 0:
+        console.print("[yellow]🟡 谨慎考虑 - 收益有限[/yellow]")
+    else:
+        console.print("[red]🔴 建议放弃 - 预期亏损[/red]")
+    
+    # 详细交易记录
+    if show_details and result.trades:
+        console.print("\n[bold]📝 详细交易记录:[/bold]")
+        trades_table = Table(box=box.SIMPLE)
+        trades_table.add_column("交易ID", style="cyan")
+        trades_table.add_column("入场时间", style="white")
+        trades_table.add_column("出场时间", style="white")
+        trades_table.add_column("持有", style="white")
+        trades_table.add_column("盈亏", style="green")
+        
+        for trade in result.trades[:10]:  # 最多显示10笔
+            pnl_color = "green" if trade.pnl_percentage > 0 else "red"
+            trades_table.add_row(
+                trade.trade_id,
+                trade.entry_time.strftime("%m-%d %H:%M"),
+                trade.exit_time.strftime("%m-%d %H:%M"),
+                f"{trade.hold_period.days}天",
+                f"[{pnl_color}]{trade.pnl_percentage:.2f}%[/{pnl_color}]"
+            )
+        
+        console.print(trades_table)
+
+
+def _save_backtest_results(result: BacktestResult, decision: TradeDecision, selections: dict):
+    """保存回测结果"""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # 创建结果目录
+    results_dir = Path("backtest_results") / selections["ticker"] / selections["analysis_date"]
+    results_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 保存JSON结果
+    result_file = results_dir / f"backtest_{timestamp}.json"
+    
+    result_data = {
+        'metadata': {
+            'symbol': selections["ticker"],
+            'date': selections["analysis_date"],
+            'timestamp': timestamp,
+            'decision': {
+                'action': decision.action.value,
+                'confidence': decision.confidence,
+                'reasoning': decision.reasoning,
+                'source_agents': decision.source_agents
+            }
+        },
+        'performance': {
+            'total_return': result.total_return,
+            'sharpe_ratio': result.sharpe_ratio,
+            'max_drawdown': result.max_drawdown,
+            'win_rate': result.win_rate,
+            'total_trades': result.total_trades,
+            'profitable_trades': result.profitable_trades,
+            'losing_trades': result.losing_trades,
+            'profit_factor': result.profit_factor
+        },
+        'trades': [
+            {
+                'trade_id': t.trade_id,
+                'entry_time': t.entry_time.isoformat(),
+                'exit_time': t.exit_time.isoformat(),
+                'entry_price': t.entry_price,
+                'exit_price': t.exit_price,
+                'pnl_percentage': t.pnl_percentage,
+                'hold_period_days': t.hold_period.days
+            }
+            for t in result.trades
+        ]
+    }
+    
+    with open(result_file, 'w', encoding='utf-8') as f:
+        json.dump(result_data, f, indent=2, ensure_ascii=False)
+    
+    console.print(f"[green]✅ 详细结果已保存到: {result_file}[/green]")
+    
+    # 如果存在权益曲线，保存CSV
+    if not result.equity_curve.empty:
+        equity_file = results_dir / f"equity_curve_{timestamp}.csv"
+        result.equity_curve.to_csv(equity_file)
+        console.print(f"[green]📈 权益曲线已保存到: {equity_file}[/green]")
+
+
+# 批量回测命令
+@app.command()
+def backtest_batch(
+    symbol: str = typer.Argument(..., help="交易品种"),
+    start_date: str = typer.Argument(..., help="开始日期（YYYY-MM-DD）"),
+    end_date: str = typer.Argument(..., help="结束日期（YYYY-MM-DD）"),
+    interval: str = typer.Option("weekly", "--interval", "-i", help="分析频率"),
+    save_results: bool = typer.Option(True, "--save/--no-save", help="保存结果"),
+):
+    """
+    批量回测 - 测试策略在历史期间的表现
+    """
+    if not BACKTEST_AVAILABLE:
+        console.print("[red]❌ 回测系统不可用[/red]")
+        return
+    
+    console.print(Panel.fit(
+        f"📈 批量回测: {symbol} ({start_date} 到 {end_date})", 
+        border_style="blue"
+    ))
+    
+    try:
+        # 使用集成系统
+        integration = TradingAgentsBacktestIntegration(results_dir="./batch_backtest_results")
+        
+        with console.status("[bold green]执行批量回测..."):
+            result = integration.run_historical_backtest(
+                symbol=symbol,
+                start_date=start_date,
+                end_date=end_date,
+                decision_interval=interval
+            )
+        
+        # 显示结果
+        console.print(f"\n[bold]📊 批量回测结果:[/bold]")
+        console.print(f"   期间: {start_date} 到 {end_date}")
+        console.print(f"   总收益率: {result.total_return:.2f}%")
+        console.print(f"   夏普比率: {result.sharpe_ratio:.3f}")
+        console.print(f"   最大回撤: {result.max_drawdown:.2f}%")
+        console.print(f"   胜率: {result.win_rate:.1f}%")
+        console.print(f"   交易次数: {result.total_trades}")
+        
+        # 风险评估
+        if result.sharpe_ratio < 0.5:
+            console.print("[yellow]⚠️  注意: 夏普比率偏低[/yellow]")
+        if result.max_drawdown < -20:
+            console.print("[yellow]⚠️  注意: 最大回撤较大[/yellow]")
+        
+        if save_results:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"batch_{symbol}_{start_date.replace('-', '')}_{end_date.replace('-', '')}_{timestamp}.json"
+            
+            batch_data = {
+                'symbol': symbol,
+                'start_date': start_date,
+                'end_date': end_date,
+                'interval': interval,
+                'results': {
+                    'total_return': result.total_return,
+                    'sharpe_ratio': result.sharpe_ratio,
+                    'max_drawdown': result.max_drawdown,
+                    'win_rate': result.win_rate,
+                    'total_trades': result.total_trades
+                }
+            }
+            
+            with open(filename, 'w') as f:
+                json.dump(batch_data, f, indent=2)
+            
+            console.print(f"[green]✅ 批量结果已保存: {filename}[/green]")
+        
+    except Exception as e:
+        console.print(f"[red]❌ 批量回测失败: {e}[/red]")
+
+
+# 回测报告命令
+@app.command()
+def backtest_report(
+    report_dir: str = typer.Option("./backtest_results", "--dir", "-d", help="结果目录"),
+    limit: int = typer.Option(10, "--limit", "-l", help="显示数量"),
+):
+    """
+    查看回测报告
+    """
+    import glob
+    
+    results_dir = Path(report_dir)
+    if not results_dir.exists():
+        console.print("[yellow]暂无回测结果[/yellow]")
+        return
+    
+    # 查找所有JSON结果文件
+    result_files = list(results_dir.rglob("*.json"))
+    result_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+    
+    if not result_files:
+        console.print("[yellow]未找到回测结果文件[/yellow]")
+        return
+    
+    console.print(Panel.fit(f"📋 回测结果报告 ({len(result_files)} 个文件)", border_style="green"))
+    
+    # 显示最近的结果
+    for i, file_path in enumerate(result_files[:limit]):
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            console.print(f"\n[{i+1}] {file_path.name}")
+            
+            if 'metadata' in data:
+                meta = data['metadata']
+                perf = data.get('performance', {})
+                
+                console.print(f"   交易对: {meta.get('symbol', 'N/A')}")
+                console.print(f"   日期: {meta.get('date', 'N/A')}")
+                console.print(f"   决策: {meta.get('decision', {}).get('action', 'N/A')}")
+                
+                if perf:
+                    console.print(f"   收益: {perf.get('total_return', 0):.2f}%")
+                    console.print(f"   夏普: {perf.get('sharpe_ratio', 0):.3f}")
+            
+        except Exception as e:
+            console.print(f"   读取失败: {e}")
 
 
 # Create a deque to store recent messages with a maximum length
