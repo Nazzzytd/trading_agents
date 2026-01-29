@@ -1494,6 +1494,66 @@ def run_analysis():
         update_display(layout)
 
 
+    # ========== 简单自适应集成 ==========
+    try:
+        # 检查自适应系统是否可用
+        from cli.adaptive_workflow import AdaptiveBacktestWorkflow
+        
+        console.print("\n" + "="*60)
+        console.print("[bold cyan]🔍 自适应回测验证[/bold cyan]")
+        console.print("="*60)
+        
+        # 创建自适应工作流
+        workflow = AdaptiveBacktestWorkflow()
+        
+        # 简单提取决策信息
+        decision_text = final_state.get("final_trade_decision", "")
+        action = "HOLD"
+        
+        # 判断动作
+        if any(word in decision_text.upper() for word in ["BUY", "买入", "做多", "LONG"]):
+            action = "BUY"
+        elif any(word in decision_text.upper() for word in ["SELL", "卖出", "做空", "SHORT"]):
+            action = "SELL"
+        
+        # 构建决策数据
+        decision_data = {
+            'symbol': selections["ticker"],
+            'action': action,
+            'date': selections["analysis_date"],
+            'confidence': 0.7,  # 默认置信度
+            'reasoning': decision_text[:300],
+            'agents': [analyst.value for analyst in selections["analysts"]]
+        }
+        
+        # 运行自适应验证
+        console.print(f"[dim]验证决策: {action} {selections['ticker']}...[/dim]")
+        
+        with console.status("[bold green]验证中...", spinner="dots"):
+            adaptive_result = workflow.process_main_cli_decision(decision_data)
+        
+        # 显示简要结果
+        if adaptive_result and 'backtest_result' in adaptive_result:
+            result = adaptive_result['backtest_result']
+            console.print(f"\n[green]✅ 验证完成:[/green]")
+            console.print(f"   预期收益: {result.get('pnl_percent', 0):.2f}%")
+            console.print(f"   风险调整: {result.get('sharpe_ratio', 0):.3f}")
+            
+            # 简单评价
+            pnl = result.get('pnl_percent', 0)
+            if pnl > 5:
+                console.print(f"   📈 评价: 优秀 (预期高收益)")
+            elif pnl > 0:
+                console.print(f"   📊 评价: 良好 (预期正收益)")
+            else:
+                console.print(f"   ⚠️  评价: 谨慎 (预期亏损)")
+                
+    except ImportError:
+        console.print(f"[dim]提示: 安装自适应系统以获取自动验证[/dim]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️  验证系统错误: {e}[/yellow]")
+
+
 @app.command()
 def analyze():
     run_analysis()

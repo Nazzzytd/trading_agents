@@ -26,14 +26,8 @@ from tradingagents.dataflows.config import set_config
 from tradingagents.agents.utils.agent_utils import (
     get_forex_data,
     get_indicators,
-    get_fundamentals,
-    get_balance_sheet,
-    get_cashflow,
-    get_income_statement,
     get_news,
-    get_insider_sentiment,
-    get_insider_transactions,
-    get_global_news
+    create_msg_delete  # ✅ 实际存在的函数
 )
 
 # 导入新的技术分析和量化分析工具
