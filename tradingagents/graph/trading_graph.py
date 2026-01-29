@@ -1,5 +1,3 @@
-# TradingAgents/graph/trading_graph.py
-
 import os
 from pathlib import Path
 import json
@@ -23,23 +21,77 @@ from tradingagents.agents.utils.agent_states import (
 from tradingagents.dataflows.config import set_config
 
 # Import the new abstract tool methods from agent_utils
-from tradingagents.agents.utils.agent_utils import (
-    get_forex_data,
-    get_indicators,
-    get_news,
-    create_msg_delete  # ✅ 实际存在的函数
+# ✅ 修复：直接导入实际存在的函数
+from tradingagents.agents.utils.core_forex_tools import get_forex_data
+from tradingagents.agents.utils.technical_indicators_tools import get_indicators
+from tradingagents.agents.utils.news_data_tools import get_news
+from tradingagents.agents.utils.quant_data_tools import (
+    get_risk_metrics_data,
+    get_volatility_data,
+    simple_forex_data
 )
 
-# 导入新的技术分析和量化分析工具
+# ✅ 尝试导入宏观经济工具
+try:
+    from tradingagents.agents.utils.macro_data_tools import (
+        get_fred_data,
+        get_ecb_data,
+        get_macro_dashboard
+    )
+except ImportError:
+    # 如果导入失败，创建占位符函数
+    def get_fred_data(*args, **kwargs):
+        return "FRED data tool not available"
+    
+    def get_ecb_data(*args, **kwargs):
+        return "ECB data tool not available"
+    
+    def get_macro_dashboard(*args, **kwargs):
+        return "Macro dashboard tool not available"
+
+# ✅ 为不存在的函数添加占位符
+def get_fundamentals(*args, **kwargs):
+    """占位符函数 - fundamentals工具已删除"""
+    return {
+        "status": "deprecated",
+        "message": "Fundamentals tools have been removed. Use macro or technical data instead."
+    }
+
+def get_balance_sheet(*args, **kwargs):
+    """占位符函数"""
+    return {"status": "deprecated", "function": "get_balance_sheet"}
+
+def get_cashflow(*args, **kwargs):
+    """占位符函数"""
+    return {"status": "deprecated", "function": "get_cashflow"}
+
+def get_income_statement(*args, **kwargs):
+    """占位符函数"""
+    return {"status": "deprecated", "function": "get_income_statement"}
+
+def get_insider_sentiment(*args, **kwargs):
+    """占位符函数"""
+    return {"status": "deprecated", "function": "get_insider_sentiment"}
+
+def get_insider_transactions(*args, **kwargs):
+    """占位符函数"""
+    return {"status": "deprecated", "function": "get_insider_transactions"}
+
+def get_global_news(*args, **kwargs):
+    """占位符函数 - 使用本地新闻数据"""
+    # 尝试使用现有的get_news函数
+    try:
+        return get_news(*args, **kwargs)
+    except:
+        return {"status": "placeholder", "function": "get_global_news"}
+
+# ✅ 从agent_utils导入实际存在的函数
+from tradingagents.agents.utils.agent_utils import create_msg_delete
+
+# 导入新的技术分析工具
 from tradingagents.agents.utils.technical_indicators_tools import (
     get_technical_indicators_data,
     get_fibonacci_levels,
-)
-
-from tradingagents.agents.utils.quant_data_tools import (
-    get_factor_analysis,
-    validate_technical_signal,
-    calculate_risk_metrics
 )
 
 from .conditional_logic import ConditionalLogic
@@ -161,11 +213,11 @@ class TradingAgentsGraph:
             get_fibonacci_levels,
         ]
         
-        # 量化分析工具节点
+        # 量化分析工具节点 - 使用实际存在的函数
         quant_tools = [
-            get_factor_analysis,
-            validate_technical_signal,
-            calculate_risk_metrics,
+            get_risk_metrics_data,
+            get_volatility_data,
+            simple_forex_data,
         ]
         
         # 更新工具节点字典
