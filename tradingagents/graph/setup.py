@@ -130,24 +130,48 @@ class GraphSetup:
                 print(f"警告: 无法导入技术分析师: {e}")
 
         # 新增量化分析师
+        # 在 setup.py 的量化分析师部分添加错误处理
         if "quantitative" in selected_analysts:
             try:
                 from tradingagents.agents.analysts.quantitative_analyst import create_quantitative_analyst
+                
+                # 先创建分析师节点
                 analyst_nodes["quantitative"] = create_quantitative_analyst(
                     self.quick_thinking_llm
                 )
                 delete_nodes["quantitative"] = create_msg_delete()
-                # 创建量化分析工具节点 - 只使用实际存在的函数
-                from tradingagents.agents.utils.quant_data_tools import (
-                    get_risk_metrics_data,
-                    get_volatility_data,
-                    simple_forex_data
-                )
-                quant_tools = [get_risk_metrics_data, get_volatility_data, simple_forex_data]
-                tool_nodes["quantitative"] = ToolNode(quant_tools)
-                print("✓ 已加载量化分析师")
+                
+                # 尝试获取量化工具
+                try:
+                    from tradingagents.agents.utils.quant_data_tools import (
+                        get_risk_metrics_data,
+                        get_volatility_data,
+                        simple_forex_data
+                    )
+                    
+                    quant_tools = []
+                    for tool_func in [get_risk_metrics_data, get_volatility_data, simple_forex_data]:
+                        if tool_func and callable(tool_func):
+                            quant_tools.append(tool_func)
+                    
+                    if quant_tools:
+                        tool_nodes["quantitative"] = ToolNode(quant_tools)
+                        print(f"✓ 已加载量化分析师，包含 {len(quant_tools)} 个工具")
+                    else:
+                        # 如果工具函数不可用，创建空的ToolNode
+                        tool_nodes["quantitative"] = ToolNode([])
+                        print("⚠️ 量化工具函数不可用，创建空工具节点")
+                        
+                except ImportError as e:
+                    print(f"警告: 无法导入量化工具: {e}")
+                    # 创建空的ToolNode作为占位符
+                    tool_nodes["quantitative"] = ToolNode([])
+                    
             except ImportError as e:
-                print(f"警告: 无法导入量化分析师: {e}")
+                print(f"错误: 无法导入量化分析师: {e}")
+                # 从选中分析师中移除量化分析，防止图构建失败
+                selected_analysts.remove("quantitative")
+                print("已从选中分析师中移除量化分析")
 
         # Create researcher and manager nodes
         bull_researcher_node = create_bull_researcher(
